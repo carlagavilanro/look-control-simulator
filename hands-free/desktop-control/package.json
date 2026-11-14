@@ -1,0 +1,20 @@
+{
+  "name": "hands-free-screen-control",
+  "productName": "Hands Free Screen Control",
+  "version": "0.4.16",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "description": "Local Windows eye control companion for Hands Free",
+  "scripts": {
+    "setup": "node node_modules/electron/install.js",
+    "prestart": "npm run setup",
+    "start": "electron .",
+    "test": "node --test test/*.test.mjs",
+    "prepackage": "npm run setup",
+    "package": "node package.mjs"
+  },
+  "devDependencies": {
+    "electron": "44.7.0"
+  }
+}

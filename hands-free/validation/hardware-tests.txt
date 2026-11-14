@@ -1,0 +1,16 @@
+✔ existing fan file preserves every captured timing from the previous firmware (2.055ms)
+✔ capture updates only named command, requires deliberate replacement, preserves raw unknown protocols (1.1327ms)
+✔ rejects overflow, repeat-only captures, malformed and excessive timing data (0.2214ms)
+✔ long intervals are packed without losing duration or pulse polarity (0.1088ms)
+✔ disk update leaves an exact previous backup (12.6997ms)
+✔ upload verifies read-back and never sends an appliance command (27.9818ms)
+✔ read-back mismatch reports failure without automatic retry (17.4824ms)
+✔ legacy firmware is detected before any file upload (3.1482ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 147.343

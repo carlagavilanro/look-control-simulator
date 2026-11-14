@@ -1,0 +1,10 @@
+node_modules/
+config*.json
+.env*
+*.log
+test/
+*-RESULTS.json
+*.zip
+.git/
+
+!public/downloads/Hands-Free-Screen-Control-Windows.zip

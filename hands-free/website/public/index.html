@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f6f5f8"><title>Hands Free · Device controls</title><link rel="stylesheet" href="/style.css"></head>
+<body>
+<svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs>
+<symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-room" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10H3Z M9 20v-7h6v7"/></symbol>
+<symbol id="i-power" viewBox="0 0 24 24"><path d="M12 2v10 M6 5a9 9 0 1 0 12 0"/></symbol>
+<symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14 M12 5v14"/></symbol>
+<symbol id="i-mode" viewBox="0 0 24 24"><path d="M3 7h18 M3 17h18"/><circle cx="8" cy="7" r="3"/><circle cx="16" cy="17" r="3"/></symbol>
+<symbol id="i-silence" viewBox="0 0 24 24"><path d="m11 4-6 5H2v6h3l6 5V4Z M16 9l6 6 M22 9l-6 6"/></symbol>
+<symbol id="i-turn" viewBox="0 0 24 24"><path d="M4 8a9 9 0 0 1 16 1 M20 3v6h-6 M20 16a9 9 0 0 1-16-1 M4 21v-6h6"/></symbol>
+<symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M9 2h6 M12 9v5l3 2"/></symbol>
+<symbol id="i-pause" viewBox="0 0 24 24"><path d="M8 5v14 M16 5v14"/></symbol>
+<symbol id="i-fan" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M11 10C5 2 16 0 16 6c0 2-1 3-3 4 M14 11c8-6 10 5 4 5-2 0-3-1-4-3 M13 14c6 8-5 10-5 4 0-2 1-3 3-4 M10 13C2 19 0 8 6 8c2 0 3 1 4 3"/></symbol>
+<symbol id="i-tv" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M8 22h8 M8 1l4 4 4-4"/></symbol>
+<symbol id="i-heat" viewBox="0 0 24 24"><path d="M7 3c-4 5 4 6 0 11 M12 3c-4 5 4 6 0 11 M17 3c-4 5 4 6 0 11 M3 18h18v4H3Z"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 22v-2a8 8 0 0 1 16 0v2"/></symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16 M14 6l6 6-6 6"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+</defs></svg>
+<a class="skip-link" href="#main-content">Skip to device controls</a>
+<nav class="rail" aria-label="Main navigation"><a class="brand" href="#main-content" aria-label="Hands Free home"><svg><use href="#i-eye"/></svg></a><a class="rail-active" href="#main-content" aria-label="Device controls"><svg><use href="#i-room"/></svg><span>Devices</span></a><a href="/screen" aria-label="Screen control"><svg><use href="#i-tv"/></svg><span>Screen</span></a><button id="profile-rail" aria-label="Open profiles"><svg><use href="#i-user"/></svg><span>Profile</span></button><div class="rail-bottom">HF<span>Capstone</span></div></nav>
+<div class="app-shell">
+<header class="topbar"><a href="#main-content" class="wordmark">Hands<span> Free</span><span class="wordmark-dot"></span></a><div class="top-actions"><span class="local-badge"><span class="status-dot"></span> On your device</span><button class="profile-chip" id="profile-open"><span class="avatar" id="avatar">+</span><span id="profile-label">Profile</span><span class="chevron">⌄</span></button></div></header>
+<main id="main-content" tabindex="-1">
+<div class="page-heading"><div><p class="eyebrow" id="greeting">HANDS FREE</p><h1>Device <span>controls</span></h1></div><button id="pause" class="secondary-button">Pause eye controls</button></div>
+<p><a id="screen-launch" class="secondary-button" href="/screen">Open screen control →</a></p><div class="dashboard">
+<section id="remote-section" class="remote-section" aria-label="Fan controls">
+<div class="device-switcher" aria-label="Available devices"><button type="button" id="device-fan" class="device active" aria-pressed="true"><svg aria-hidden="true"><use href="#i-fan"/></svg><div>Fan<span id="fan-status">Ready to connect</span></div><span class="device-dot"></span></button><button type="button" id="device-tv" class="device" aria-pressed="false"><svg aria-hidden="true"><use href="#i-tv"/></svg><div>TV<span id="tv-status">Capture required</span></div></button><div class="device unavailable"><svg><use href="#i-heat"/></svg><div>Heater<span>Not set up</span></div></div></div>
+<div class="remote-card"><div class="section-heading"><div><p class="eyebrow">REMOTE</p></div><span class="pill" id="remote-name">Fan</span></div><p id="mode" role="status" class="connection-status">Connect the controller to begin.</p><div id="controls" class="grid"></div><div class="result-line"><span class="result-dot"></span><p id="result" role="status" aria-live="polite">No command sent.</p></div></div>
+<div class="hold-feedback"><div class="hold-icon"><svg><use href="#i-eye"/></svg></div><div class="hold-copy"><div class="hold-title"><strong>Hold to select</strong><span>0.6 SEC</span></div><p id="hold-status" role="status">Look left or right to move, then hold center for 0.6 seconds.</p><progress id="hold-progress" max="1" value="0" aria-label="Selection progress"></progress></div></div>
+
+</section>
+<aside class="setup-column" aria-label="Camera and eye controls">
+<section class="vision-card"><div class="section-heading"><span class="private-label"><span class="status-dot"></span> Private</span></div><div class="camera-preview"><div class="camera-empty"><svg><use href="#i-eye"/></svg></div><video id="video" aria-label="Your front camera preview" autoplay playsinline muted></video><canvas id="eyes" aria-hidden="true"></canvas><span class="preview-label">EYE TRACKING</span></div><div id="direction" role="status">Camera is off</div><p id="tracking" role="status">Start your camera to use eye controls.</p><div class="row camera-actions"><button id="start" class="primary-button">Start camera <span>↗</span></button><button id="stop" class="secondary-button">Stop</button></div></section>
+<div id="setup-nudge" class="setup-nudge"><p>Calibration needed</p><button id="setup-launch" class="secondary-button">Set up eye controls</button></div><section class="setup-card"><details id="connection-panel" open><summary><span><span class="step-marker">02</span> Controller connection</span><span class="summary-toggle">+</span></summary><div class="details-content"><label for="key">Website access key</label><div class="connect-form"><input id="key" type="password" autocomplete="off" placeholder="Enter your access key"><button id="connect" class="primary-button">Connect</button></div></div></details></section>
+</aside></div>
+<footer><span><span class="status-dot"></span> Hands Free · Capstone project</span></footer>
+</main></div>
+<dialog id="profile-dialog" aria-labelledby="profile-title"><div class="dialog-heading"><span class="dialog-mark"><svg><use href="#i-user"/></svg></span><button id="profile-close" class="icon-button" aria-label="Close profiles">×</button></div><p class="eyebrow">PROFILE SETTINGS</p><h2 id="profile-title">Profile</h2><section id="profile-settings" class="profile-settings" hidden><p id="profile-calibration-status" role="status"></p><div class="profile-settings-actions"><button id="profile-calibrate" class="secondary-button">Edit calibration</button></div></section><div id="profile-list" class="profile-list"></div><form id="profile-form"><label for="profile-name">Name</label><input id="profile-name" name="name" autocomplete="given-name" placeholder="First name" maxlength="40" required autofocus><button type="submit" class="primary-button create-profile">Create profile <span>→</span></button></form><p id="profile-message" role="status"></p><div class="profile-actions"><button id="profile-forget" class="text-button" hidden>Remove current profile</button><button id="profile-guest" class="text-button">Continue without a profile</button></div><p class="profile-privacy">Calibration stays on this device.</p></dialog>
+<dialog id="setup-dialog" class="setup-dialog" aria-labelledby="setup-title">
+ <div class="setup-heading"><p id="setup-progress" class="eyebrow">SETUP</p><button id="setup-close" class="icon-button" aria-label="Close guided setup">×</button></div>
+ <h2 id="setup-title" tabindex="-1">Eye control setup</h2>
+ <p id="setup-copy" class="setup-copy"></p>
+ <div id="setup-target" class="setup-target" aria-hidden="true"><span id="setup-symbol">◎</span><span id="setup-target-label"></span></div>
+ <div id="setup-camera-slot"></div>
+ <div id="calibration-panel" hidden><p id="saved-status" class="saved-status"></p><div class="calibration-steps" aria-label="Calibration progress"><div id="center"><span class="calibration-number">1</span><strong>Center</strong><small>Not started</small></div><div id="left"><span class="calibration-number">2</span><strong>Left</strong><small>Not started</small></div><div id="right"><span class="calibration-number">3</span><strong>Right</strong><small>Not started</small></div></div><p id="calibration" role="status" aria-live="polite"></p></div>
+ <p id="setup-note" class="setup-note"></p><p id="setup-error" class="setup-error" role="alert"></p>
+ <div class="setup-footer"><button id="setup-back" class="secondary-button">Back</button><button id="setup-next" class="primary-button">Begin setup →</button></div>
+ <button id="setup-later" class="text-button">Finish later</button>
+</dialog>
+<script type="module" src="/app.mjs"></script></body></html>

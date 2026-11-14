@@ -1,0 +1,5 @@
+node_modules/
+capture-logs/
+*.bak
+*.tmp-*
+config.local.json

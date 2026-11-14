@@ -1,0 +1,11 @@
+import './app.mjs';
+const $=id=>document.getElementById(id);
+$('mode').textContent='Appliance connection is not set up yet.';
+$('result').textContent='Controller offline';
+document.querySelector('.device.active div>span').textContent='Not connected';
+const details=document.querySelector('#connection-panel .details-content');
+details.replaceChildren();
+const message=document.createElement('p');message.className='setup-hint';message.textContent='Connect your home controller.';details.append(message);
+document.querySelector('.profile-privacy').textContent='Calibration stays on this device.';
+const form=document.createElement('form');form.action='/logout';form.method='post';
+const logout=document.createElement('button');logout.className='text-button';logout.type='submit';logout.textContent='Sign out';form.append(logout);document.querySelector('.top-actions').append(form);

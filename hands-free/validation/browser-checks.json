@@ -1,0 +1,14 @@
+{
+  "result": "PASS",
+  "fixture": "loopback mock controller; no camera or IR",
+  "checks": [
+    "fan controls enabled",
+    "uncaptured TV controls disabled",
+    "TV status survives reconnect",
+    "loaded TV power enables independently",
+    "one click forwards one TV command",
+    "device switch emits no command",
+    "390px viewport has no horizontal overflow",
+    "no browser script errors"
+  ]
+}

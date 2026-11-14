@@ -6,3 +6,5 @@ __pycache__/
 *.db
 *.log
 .DS_Store
+
+/Hands-Free-Screen-Control-Windows/

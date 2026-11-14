@@ -1,0 +1,226 @@
+CURRENT VERSION 0.4.16 - DIRECT EYE CLOSE-UP TRACKING
+Choose Face + eyes for normal framing, or Eyes close-up when zoom excludes the
+whole face. Eyes close-up runs a separate MediaPipe Iris model directly on two
+selected eye crops, without a full-face detector. Both eyes, eyelids and both eye
+corners must be visible. In Set camera / preview, use Mark eye 1 and Mark eye 2,
+then click their centers in the preview. Adjust Eye box size so each box includes
+the eyelids and corners. Check the actual blue outlines before Use these settings.
+
+Run a new calibration and separate accuracy check for this mode. Its numerical
+eye boxes, camera/lens/zoom settings and eye map are saved separately from Face +
+eyes. Changing modes never silently reuses the other mode's calibration. Images
+and video are not saved or uploaded. All inference assets are bundled locally.
+
+This is a new close-up tracking path. It still needs your camera accuracy test;
+more zoom does not guarantee better screen pointing. Eye corners provide limited
+frame alignment, not a full 3D face pose. Guided face positions and automatic face
+return diagrams are disabled here. Keep the eyes within the selected areas; a
+large head movement or occlusion pauses input. Face + eyes retains face guidance.
+The compact bottom keyboard, local word suggestions and direct lens buttons stay.
+
+PREVIOUS VERSION 0.4.15 - BOTTOM KEYBOARD AND LOCAL WORD SUGGESTIONS
+Typing now uses a bottom dock. Your open app stays visible above it. On Windows,
+the uncovered area passes mouse input through; the full tracking viewport remains
+unchanged, so opening the keyboard does not change calibration coordinates.
+
+Three local English suggestions complete a word with one selection and add a
+space. Space fixes common typos. Undo restores the original; Text options can
+turn automatic correction off while keeping suggestions. Names, addresses, URLs,
+and ambiguous spellings are not automatically changed. Use Hide keyboard to see
+the app and return to writing later; each task keeps its draft during the session.
+The bundled 20,000-word dictionary runs on this computer. No typing is sent to an
+autocorrect API or stored as a personalized history. Source/license details are
+in resources/app/public/vendor/english-words-NOTICE.txt. Existing calibration,
+head-position maps, camera selection and direct physical lens controls are kept.
+
+PREVIOUS VERSION 0.4.14 - DIRECT PHYSICAL LENS SWITCHING
+Set camera / preview now has Wide-angle and Telephoto buttons for the EMEET SmartCam C60E 4K Dual. They send the camera's actual UVC zoom endpoints (reported minimum / maximum), then check the result. At 4K use these buttons; at 1080p / 30 fps continuous camera zoom is also available. Unsupported camera drivers do not show these buttons.
+
+Each camera and lens keeps its own most recent calibration and head-position maps. Switching back restores matching saved framing when the capture resolution matches. Use these settings, then Use saved calibration if available. A lens or framing that has not been calibrated needs its own setup and accuracy check. Original saved profiles are preserved. No video is saved.
+
+PREVIOUS VERSION 0.4.13 - CAMERA FRAMING AND DUAL-LENS PRESETS
+Camera preview reads your current Windows framing instead of applying an old zoom. Driver zoom changes are serialized and verified. Use 1080p to compare the C60E camera zoom against 4K; identical reported zoom values can produce different framing. Extra frame crop uses the captured pixels and feeds the tracker and preview together; it is not optical zoom. Crop position is adjustable. Keep the full face visible.
+
+Each lens can retain its own framing preset. Crop and lens changes require matching calibration. Use these settings keeps the camera stream running into calibration to avoid restarting the chosen camera configuration. Windows camera settings opens the system camera controls. No video is saved.
+
+PREVIOUS VERSION 0.4.12 - EXTERNAL CAMERA AND 4K
+Choose a camera and 4K / 1080p / 720p in setup. Set camera / preview lets you adjust supported hardware zoom before calibration. Explicit resolutions are never silently lowered. Camera, actual resolution, supported zoom/framing and image settings are stored with calibration and restored when available. Lens and remote zoom labels record settings the driver cannot switch. Keep those physical settings unchanged; changes may require a new calibration. Left/right screen accuracy is reported separately, and model selection considers error on the weaker side.
+
+PREVIOUS VERSION 0.4.11 - COMPACT TASKS AND EXTRA CONTROLS
+Search tasks and More controls now use small panels. Next field, Previous field, Enter, Address bar and Browser back are available directly in More controls. On small windows, page buttons keep the choices within reach. Compact typing, saved calibrations and head positions are retained.
+
+PREVIOUS VERSION 0.4.10 - COMPACT KEYBOARD RESTORED
+The first launch of this update restores the compact keyboard. All letters remain visible. The size switch is now under Text options, away from the character keys. Larger typing has a visible Compact keyboard button to return in one selection. Switching sizes keeps your draft. Saved calibrations and the 0.4.9 forehead markers, head-position maps, page targeting, reading mode and Windows controls are retained.
+
+PREVIOUS VERSION 0.4.9 - FOREHEAD ALIGNMENT MARKERS
+The front-view head guides now show a cross on the target forehead and a circle on the live forehead. Line up the circle with the cross when adding a position or returning to a saved position. The markers move with the existing head guides; they do not change the calibration or acceptance rules. All 0.4.8 keyboard and interactive-page controls are included.
+
+PREVIOUS VERSION 0.4.8 - FULL KEYBOARD AND PAGE TARGETS
+Typing shows all letters at once. 123 changes to numbers/symbols, Aa changes case, and Larger keys restores grouped typing. Text options > Full keyboard returns to the compact layout. Existing calibration and selection timing are unchanged.
+
+Search Google or YouTube, then look near a visible link, button or text field. Browse & scroll highlights a nearby keyboard-focusable item; hold the highlight for 0.6 seconds to activate it. Selecting a text field opens the keyboard. Look away after selection. No Tab button is needed. Windows accessibility supplies the actual controls rather than inventing targets in paragraph text. Closely competing items require a clearer look.
+
+The app must expose its controls through Windows accessibility. Region click remains available when it does not. Scroll controls move the page; Read / watch pauses interaction. Use another app refreshes the app behind the companion. Head positions, return guidance and saved maps are preserved. Camera processing and transient app-control labels stay local.
+
+PREVIOUS VERSION 0.4.7 - EASIER HEAD-POSITION CAPTURE
+Move toward the suggested oval and hold comfortably. Five-point collection starts automatically when the eyes are visible and the position is steady. The suggestion is a direction, not an exact six-coordinate match. Capture this position also starts collection at your own nearby position. The measured pose is saved, followed by seven separate accuracy checks. Existing saved positions remain available.
+
+Nearby saved maps estimate positions in between. A shared head-motion correction is used only when held-out target or held-out position tests support it. Small noise across several head measurements no longer abruptly drops an otherwise supported blend. Positions outside the measured range still pause input. This improves the software behavior; your own camera accuracy still needs a fresh test.
+
+PREVIOUS VERSION 0.4.6 - FIND YOUR SAVED HEAD POSITION
+Find my saved position opens a live front and side guide. Line up the dotted head with the solid saved head and hold for a moment. The guide also appears after a prolonged tracking loss. It uses the saved maps without changing calibration. A calibration that failed its accuracy check still requires the explicit test-controls choice before clicks are enabled.
+
+VERSION HISTORY 0.4.5 - READ / WATCH
+Read / watch hides the controls and gaze marker. Look at the floating Use pointer button for 0.6 seconds to resume. Ordinary glances do not select controls in reading mode. The reading button position can be changed under More controls > Other keys & settings. Normal control uses button highlights; Pointer test shows the moving gaze estimate.
+
+Nearby visible controls can resolve a close gaze miss when one target is clearly closest. Ambiguous gaps and distant blank areas remain unselected. This uses the companion's own control geometry. Other apps continue to use screen-region zoom and scroll commands.
+
+PREVIOUS VERSION 0.4.4 - FASTER SELECTION
+Selection uses a 0.6-second hold after target acquisition. Brief nearby excursions pause progress for up to 0.3 seconds. Recent time over the same button supports selection despite coordinate jitter. A sustained move to another button starts a fresh hold. Tracking loss never completes a selection. Look away briefly to select the same control again.
+
+PREVIOUS VERSION 0.4.3 - GAZE ACCURACY AND GUIDED HEAD POSITIONS
+Head positions now suggests the next useful pose from the positions actually saved. A diagram shows the target and a dotted live camera estimate. Match the pose briefly, then choose Capture suggested position. Follow five dots with your eyes while keeping that position, then seven accuracy checks. Smaller movement, another suggestion and manual capture are available. Suggestions cover translation, distance, turn, nod and tilt within your comfortable range.
+
+New calibrations fit the observed frame variation and save numerical reference summaries. Matched targets across multiple head positions can teach a shared head-motion correction, selected by held-out target error. Existing saved profiles still work. Replace older positions with five-point captures to provide these summaries. A supported head range remains necessary.
+
+For a steady offset, choose More controls > Quick alignment (1 dot), then follow seven accuracy checks. Spatially varying errors need five-point alignment or nine-point refinement. Brief head spikes pause selection and require coherent recovery. Camera images and video stay on the device. Numerical calibration summaries are saved locally. Automated simulated tests do not establish your personal accuracy.
+
+PREVIOUS VERSION 0.4.2 - STEADIER FIXATION AND SELECTION
+Brief returning jumps are held while sustained movement moves the pointer. Small corrections remain possible; the pointer does not snap to buttons. A brief fluctuation inside the same button pauses the one-second hold without counting that time. Leaving the button, losing tracking or prolonged instability resets selection. Look away before selecting the same control again.
+Preview and controls now use the same rules for which saved maps can be used. Normal control excludes maps that failed their checks; explicit Test mode includes them without changing their results. Your existing profiles, up to 15 saved head positions, and estimates between them are retained. This update does not require recalibration.
+Try Pointer test on the actual controls first, then Enable selections. Compare a steady gaze, small shifts and a deliberate move to another button. Copy tracking report records raw/display movement and held excursions locally. It cannot identify microsaccades or prove gaze accuracy. The seven accuracy checks still use the original estimates, not the steadier displayed pointer. A wrong offset still needs alignment rather than more smoothing.
+Research and implementation limits are documented in the website README, under Fixation handling. Automated tests use simulated gaze; real camera results still need testing with you.
+
+VERSION 0.4.1 - ESTIMATING BETWEEN HEAD POSITIONS
+Choose Add head positions in setup, or Head positions on the controls. Existing saved positions are retained. You can save up to 15 positions total: normal, slightly left/right, nearer/farther, higher/lower and small natural turns while both eyes remain visible. Use nearby positions with small gaps. Each new position uses five eye-only dots followed by seven separate accuracy checks. You do not need a full calibration at intermediate positions.
+The app combines nearby saved gaze maps according to your measured head position, size and orientation. It estimates between the saved positions, rather than abruptly switching at their boundary. Continuous movement does not restart the pointer or one-second selection hold. Looking away, losing tracking or an abrupt head movement pauses input until a stable match returns. A large unmeasured gap or a position outside the supported range still pauses input; add a nearby position to cover that area.
+Use saved positions starts normal controls using maps that passed their individual checks. Test saved positions explicitly includes maps that did not pass. Test mode does not change their results. Pointer test lets you try movement on the actual controls page with selections paused. Check accuracy uses seven fresh targets to measure the combined map at your current head position; it does not fit the interpolation or overwrite saved-position checks.
+Between-position accuracy is estimated, not independently certified by the endpoint checks. The dashed pointer outline uses saved-position error allowances, not a measured error at every new head position. Your camera and screen must still match the saved setup. Profiles and numerical calibration stay local. No images, videos or raw calibration samples are retained.
+
+VERSION HISTORY - 0.3.9 - ONE-SECOND SELECTION
+Hold a control for one second after gaze settles to select it. Look away before selecting the same control again. Tracking loss, raw-gaze checks and pause protection still apply. Saved calibrations are unchanged. After looking away, face the screen again. Your map stays saved. If the new head position is not working, choose Realign · 5 points directly on the controls. This rebuilds an eye-only map at the new position and runs seven independent accuracy checks. It does not loosen head-position limits or count the old check as passed. Older version notes below describe their previous timing.
+
+HANDS FREE - WINDOWS SCREEN CONTROL (prototype 0.3.8)
+
+VERSION 0.3.8 - STEADIER FIXATION
+Small fluctuations during a steady gaze are stabilized in both the pointer test and the actual controls. A brief median filter rejects short spikes, a fixation hold steadies the estimated location, and adaptive filtering follows sustained gaze changes. The hold uses screen pixels and is refreshed so fine movements are not permanently ignored. This cannot distinguish involuntary eye movement from webcam noise and does not fix a miscalibrated map.
+Raw eye estimates still determine calibration accuracy, tracking validity, and whether a target can be selected. No artificial improvement is applied to the accuracy report. Two-second selection remains unchanged. Copy tracking report now includes raw versus displayed movement and the percentage of samples using fixation stabilization; these are motion diagnostics, not accuracy measurements.
+Saved profiles remain compatible. Restart the app to load the update.
+
+GETTING STARTED
+1. Extract the entire ZIP. Keep the folders next to the executable.
+2. Open Hands Free Screen Control.exe on a Windows 10/11 computer.
+3. Enter your name. Your saved calibration still works with this update on the same camera and display. Choose a new accuracy check if you want to measure it again.
+4. Detailed calibration is the default: 25 screen locations, with two extra visits to the center (27 dots total). Standard uses 13 locations plus two center revisits. Look at the dot until it moves. Blinking is okay.
+5. Seven different dots then check accuracy. After a passing check, the controls open automatically. Look near the center of a large tile for TWO SECONDS to select it. Look away after selecting.
+6. If the check fails, setup finishes with the measured errors. Adjust alignment collects five new reference points to correct a consistent offset or distortion, followed by seven fresh accuracy checks. You can also test the pointer without sending any clicks, or start a new calibration.
+
+USING THE CONTROLS - VERSION 0.3.8
+The four main tasks are Search YouTube, Search Google, Type into a text box, and Browse & scroll.
+
+YOUTUBE / GOOGLE
+1. Choose Search YouTube or Search Google.
+2. Choose a letter group, then a smaller group and a letter. The draft stays visible above the letters.
+3. Space and Delete last letter stay beside the named Search button.
+4. Choose Search YouTube / Search Google. This opens the results directly in your default browser. No separate Enter, search-field click, or Type into app step is needed.
+5. The browse controls stay over the page. Scroll down / Scroll up moves it; Click a video or button opens zoom selection. Search or type returns to the four tasks.
+Text options includes uppercase/lowercase, Clear this draft, and the website homepage.
+
+TYPING INTO ANOTHER APP
+1. Choose Type into a text box, then Choose a text box. Select the field using the enlarged screen. The writing controls open after the click.
+2. If the field already has the text cursor, choose Text box already selected.
+3. Write your draft, then choose Type text to insert it without submitting it.
+4. To insert and submit together, choose Text options -> Type + Enter. More controls -> Press Enter submits text that is already in the app.
+Drafts stay in memory while changing tasks. An interrupted send keeps its draft. A completed send clears it. No text draft is saved to disk by this app. Searching sends the query to Google or YouTube in your browser.
+
+CLICKING
+Click a video or button captures a frozen local view. Choose the region containing your target, then repeat as the image enlarges. Back undoes one zoom. When the final region is at most 12 physical pixels wide and tall, its center is clicked in the real app. This region size is not a claim of gaze accuracy. Use it for stationary targets.
+
+PAUSE: Escape or Ctrl+Alt+P. You can also look at Pause.
+RESUME: look at Resume for two seconds, or Ctrl+Alt+P.
+QUIT: Ctrl+Alt+Q. Closing the companion also stops the camera.
+
+Open controls without eye tracking lets a helper view the controls and click Google or YouTube. Windows clicking, typing, and scrolling require either a passing accuracy check or an explicit Test controls choice, plus fresh eye tracking.
+
+CALIBRATION FEATURES
+The app compares combined-eye, separate-eye, and numerical models that learn head-motion correction within each fixed target using whole screen locations left out of training. A more complex map is selected only when it improves those results. Repeated center observations detect drift and are held out together during model comparison.
+
+Calibration waits for settled eye measurements. The camera preview and tracking messages are hidden while collecting a dot so they do not distract from the target. A point that cannot settle pauses with an option to retry that point; the app does not automatically cycle through completed points.
+
+Automatic camera mode requests 1080p and measures tracking speed before calibration. If it is too slow, it requests 720p before collecting points. Actual resolution depends on the camera. Balanced mode requests 720p directly. Camera resolution stays fixed during a calibration.
+
+The result report separates mapping error, sample scatter, head-position rejection, and unavailable eye measurements. Error statistics include finite estimates that fall outside the screen or are rejected for head position; these are not hidden from the results.
+
+The five-point alignment can adjust a saved map after a moderate position change. A larger change requires a new calibration. Alignment points never double as the later accuracy check. The pass criteria have not been relaxed.
+
+SAVING AND PRIVACY
+Camera images, raw eye samples, desktop snapshots, and typed text stay in memory on this PC. They are not uploaded to Railway.
+
+Calibration saves numerical model coefficients, camera/display settings, accuracy measurements, and your local profile name. It does not save video, images, or raw eye samples. The fitted map is saved before its separate accuracy check; failing that check does not erase the map.
+
+The companion keeps calibrations.json and a recovery copy in:
+%APPDATA%\Hands Free Screen Control\
+
+This is separate from the extracted app folder, so replacing the app does not delete profiles. Browser profiles have separate storage. Existing browser-storage profiles in the companion are imported when used. The companion remembers the last saved name.
+
+Use saved calibration resumes on the same camera and display. Check accuracy again after moving the camera or changing posture. Adjust saved alignment can correct a moderate offset. A changed camera, resolution, display size, or scaling requires calibration for that configuration. Small window-size fluctuations are ignored; substantial changes restart measurements for the new viewport.
+
+LAUNCHING AND UPDATING
+The first run registers icontrol-eyes:// for this Windows user so the home website's Open Windows companion link can open it. No administrator installation is needed. The app must remain in its extracted folder.
+
+To update, close the old companion, extract the new ZIP into its own folder, and open the new executable once. Refreshing the home website does not update an already-downloaded companion. Launching the new executable updates the website launcher to its location.
+
+LIMITS
+This version controls the PRIMARY display. Additional monitors, Android, macOS, drag-and-drop, right/double click, and Windows secure/elevated screens are not implemented.
+
+This is direct horizontal and vertical gaze mapping, not the appliance controller's left/right/center gestures. A normal webcam cannot guarantee individual-pixel gaze accuracy. The zoom controls make small targets easier to select. The dashed pointer outline is based on a previous measured error; it is not a guarantee.
+
+Automated tests use simulated measurements and do not establish accuracy for a real person. The on-device check measures the current person, camera, and position. Pause and check alignment if the pointer drifts.
+
+The executable is an unsigned development build. Follow your school's or organization's software policy if Windows blocks it. Do not disable Windows security protections.
+
+VERSION 0.3.1 REPAIR
+New calibrations no longer use head position as a direct predictor of screen location. This avoids learning head/target correlations that can fail after calibration. Correction learned from movement within a fixed target remains available. Detailed calibration visits opposite screen regions instead of sweeping each row in order.
+
+For an existing saved map, first choose Adjust saved alignment (five points). The app compares an offset/scale correction with a new, regularized eye-only map built from those five points. It compares individual-frame errors at an anchor excluded from each fit, so unstable predictions are not hidden by a good median. The new map is used only when that comparison improves sufficiently. Seven fresh accuracy checks measure the repair; none of those checks are used to fit it. Automatic activation requires a passing check. Explicit test mode can be used with unverified accuracy.
+
+The five repair points cover more of the upper and lower screen. You do not need to repeat all 27 calibration observations to try this repair. It is not guaranteed to fix inconsistent eye measurements; the independent check shows whether it worked for the current user and camera.
+
+VERSION 0.3.2 EYE-ONLY COMPARISON
+Eye-only repair (five points) explicitly builds a new simple eye-only map with no head-motion correction. It is available beside the automatic alignment repair on the saved profile and the failed-check screen. This lets you compare the methods without repeating a full calibration. Seven fresh accuracy checks follow the repair. Automatic activation requires a passing check; explicit test mode is available with unverified accuracy. The normal head-position and tracking-loss limits still apply.
+
+A five-point repair will explain a camera/display mismatch instead of silently starting a full calibration. The result preserves the previous average and 90% error for comparison. Per-point diagnostics now identify which head-position limits rejected frames and, for head-corrected maps, the 90th-percentile size of the correction's contribution. This contribution is not an accuracy measurement or a separately fitted model.
+
+Copy test report copies only the displayed result text. It contains no images, video, raw eye samples, profile name, or model coefficients. The browser may require permission for clipboard access; copying the displayed text manually also works.
+
+VERSION 0.3.3 - TEST CONTROLS
+Choose Test controls with this calibration on the result screen, or Test controls with saved calibration on the profile screen. This explicitly enables eye selections without treating a failed check as passed. Four large buttons appear per page; Previous page and Next page reach the rest. Hold a button for two seconds, then look away before another selection.
+
+The browser only operates the practice controls. In the Windows companion, test mode sends real clicks, typing, scrolling, and website shortcuts, so wrong selections can affect the open app. A persistent banner identifies test mode. Escape, Pause, or Ctrl+Alt+P pauses input; Resume keeps test mode for this session. Starting a new check, setup, or reload ends test mode. Your saved measured accuracy is never changed by this choice. A valid map and matching camera/screen setup are still required.
+
+Test mode uses the estimated pointer inside the button instead of requiring its full measured error outline to fit. The outline still shows measured uncertainty. Eye/head-position limits, fresh-frame checks, fixation, two-second dwell, look-away release, and native input pause checks remain in place. This is a way to try the current map, not an improvement in its measured accuracy.
+
+VERSION 0.3.4 - CLEARER SEARCH AND TYPING
+The task and text composer update retains gaze mapping, calibration, and head-position checks. The current version uses a two-second dwell. Two-second selections on Space, Delete, Search, and Text options work directly. Type + Enter is one explicit native request. Empty drafts cannot be sent. Search uses a fixed Google/YouTube destination rather than relying on a browser search field having focus.
+
+Use the Hands Free Screen Control shortcut on your desktop or Start menu. The installed app contains its own latest eye code; Railway is not needed to load the app or calibrate. Internet is still needed to visit websites.
+
+VERSION 0.3.5 - TWO-SECOND SELECTION AND STEADIER POINTER
+All screen-control selections now use two seconds after gaze settles. Look-away release, pause, and fresh-tracking checks remain in place.
+The video and blue overlay now use identical aspect-ratio fitting. Eye outlines use all 16 eyelid landmarks; iris rings are drawn as ellipses with a center marker instead of four-sided diamonds. These drawings show the model's estimates, not independently verified eye boundaries.
+The pointer uses a five-sample median (no older than 150 ms) and stronger smoothing while gaze is still. This suppresses brief jumps and follows sustained movement. It does not fix a systematic offset or make the accuracy report look better: calibration, seven-point errors, and fixation checks still use unsmoothed measurements.
+No new calibration is required solely for this display/smoothing update. Eye-only alignment repairs the map; it cannot remove all noise in individual camera frames. Test gaze pointer lets you check stability before using the controls.
+
+VERSION 0.3.6 - KEEP EYE CONTROL ON AND REFINE POSITION ACCURACY
+The pointer preview now offers Use eye controls (or Test eye controls for an unverified map). This keeps eye tracking enabled instead of opening a mouse-only control view. Preview and controls share one pointer display path. Capture continues while the preview is invisible and during brief native overlay hiding. Sending an action no longer deliberately erases the pointer.
+An amber marker is rejected tracking, never a selectable gaze. In version 0.3.7 the marker holds its last accepted position rather than following rejected coordinates to the edge. Loss of eye tracking clears it. Actual model coordinates are never clamped for selection or accuracy statistics.
+To improve where the pointer lands, choose Refine accuracy - 9 points on your saved profile or the check results. Nine fresh anchors compare offset/scale, eye-only, and regional residual corrections. Different screen locations can need different corrections. The current map is kept if the fresh measurements do not demonstrate a useful improvement. A new seven-point check follows and remains separate from fitting.
+New full detailed calibrations can also select a regional correction. The base model AND correction are refit without each held-out location during model comparison. A more complex correction is selected only when it improves that comparison. Corrections with folds or excessive amplification are rejected. This changes the map, not just pointer smoothing.
+Only numerical coefficients and screen-space correction centers are saved. No video or raw eye features are saved. Your old calibration remains readable; use nine-point refinement before repeating a full calibration. A webcam cannot guarantee an exact gaze location, and the next real-person check is needed to judge this update.
+Method reference: regularized Gaussian radial-basis residual correction, implemented locally in JavaScript; kernel and regularization background: https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.RBFInterpolator.html . No SciPy runtime or cloud processing is used by the app.
+
+VERSION 0.3.7 - CONTROLS TRACKING
+Opening controls keeps the running pointer state and does not change Windows focus. Task/typing pages have the same solid background as setup; only Browse exposes the other app. Highlighting a selected tile no longer shifts its text. Rejected coordinates are never displayed as a moving pointer: an inactive amber mark holds the last accepted position, and recovery from sustained rejection requires several consistent readings. Mapping and accuracy statistics still use original estimates.
+
+Pointer test in the controls header pauses eye selections on the CURRENT page, without changing the camera, window focus, map or pointer filter. Enable selections resumes (mouse or two-second gaze). Copy tracking report copies recent aggregate counts, rejection reasons, camera performance and movement statistics. Movement statistics are not a target accuracy measurement. The report contains no images, typed text, profile name or raw eye features; it is only copied when you choose it.
+

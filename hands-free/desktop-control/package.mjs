@@ -1,0 +1,13 @@
+import fs from 'node:fs/promises';import path from 'node:path';import {fileURLToPath} from 'node:url';
+const root=path.dirname(fileURLToPath(import.meta.url)),out=path.resolve(root,'../../Hands-Free-Screen-Control-Windows'),appdir=path.join(out,'resources/app');
+await fs.mkdir(out,{recursive:true});
+await fs.cp(path.join(root,'node_modules/electron/dist'),out,{recursive:true});
+await fs.mkdir(appdir,{recursive:true});
+for(const file of ['package.json','main.mjs','preload.cjs','input-policy.mjs','calibration-store.mjs','native-input.ps1','native-accessibility.ps1'])await fs.copyFile(path.join(root,file),path.join(appdir,file));
+await fs.mkdir(path.join(appdir,'public'),{recursive:true});
+for(const file of ['screen.html','screen.css','screen-app.mjs','screen-gaze.mjs','screen-positions.mjs','screen-worker.mjs','screen-eye-overlay.mjs','screen-targets.mjs','screen-camera.mjs','screen-typing.mjs','screen-eye-crop.mjs'])await fs.copyFile(path.resolve(root,'../website/public',file),path.join(appdir,'public',file));
+await fs.cp(path.resolve(root,'../website/public/vendor'),path.join(appdir,'public/vendor'),{recursive:true});
+const exe=path.join(out,'Hands Free Screen Control.exe');
+await fs.copyFile(path.join(out,'electron.exe'),exe);await fs.unlink(path.join(out,'electron.exe'));
+await fs.copyFile(path.join(root,'START-HERE.txt'),path.join(out,'START-HERE.txt'));
+console.log(out);

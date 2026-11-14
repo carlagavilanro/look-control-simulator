@@ -1,0 +1,47 @@
+✔ cloud mode refuses to start without a strong login password (0.7924ms)
+✔ cloud sign-in protects the app and model, rejects commands, and supports logout (215.0507ms)
+✔ repeated invalid sign-ins are rate limited (140.6129ms)
+✔ exactly five seconds selects once, with no repeat or unarmed selection (1.1991ms)
+✔ looking away restarts the entire five-second hold (0.881ms)
+✔ stalled frames cannot complete a hold (0.1618ms)
+✔ changing targets and losing tracking discard elapsed hold time (0.1402ms)
+✔ brief blink pauses near-complete hold and excludes every missing interval (0.1164ms)
+✔ long tracking loss preserves target but requires a full new hold (0.1053ms)
+✔ brief loss cannot accumulate time while eyes stay unavailable (0.1082ms)
+✔ no selection before calibration or neutral rearming (1.4283ms)
+✔ held glance triggers once; center required before repeat (0.3617ms)
+✔ eye loss cancels pending gesture (0.1559ms)
+✔ stale frames and head shift disarm (0.259ms)
+✔ indistinguishable calibration rejected (0.2591ms)
+✔ one five-second center hold sends directly exactly once (8.4186ms)
+✔ pausing before hold completion cancels the hold without a command (1.7111ms)
+✔ tracking loss keeps Power toggle selected and requires fresh five seconds after prolonged loss (2.6749ms)
+✔ mouse or touch activation sends once with no confirmation screen (1.1624ms)
+✔ profile calibration restores into the tracker without arming a command (1.5135ms)
+✔ opening profile picker cancels a partial hold and blocks gesture commands (1.2641ms)
+✔ new profile opens guided welcome and interrupted setup resumes (1.3591ms)
+✔ setup and tour block every appliance activation path (1.481ms)
+✔ guided samples advance, persist calibration and finish the tour without sending (1.9558ms)
+✔ insufficient frames retry the same direction without saving (1.0421ms)
+✔ invalid direction samples never replace saved calibration; cancellation restores it (1.1302ms)
+✔ storage failure is visible and does not falsely mark calibration saved (1.8879ms)
+✔ saved calibration resumes unfinished tour and different camera keeps setup prompt visible (1.2835ms)
+✔ TV starts unavailable and a forged UI activation sends nothing (2.6687ms)
+✔ loaded TV volume uses the same single five-second hold (1.6559ms)
+✔ device switching cancels the hold and does not send or arm the new device (1.5735ms)
+✔ eye selection can switch devices without an appliance command (1.2233ms)
+✔ named calibration survives a new session on the same camera (1.5741ms)
+✔ switching profiles never reuses another person’s calibration (0.8902ms)
+✔ invalid calibration and duplicate or empty names are rejected (0.3146ms)
+✔ corrupt or blocked storage does not falsely report a successful save (0.3594ms)
+✔ saved data excludes frames, raw landmarks, and access keys (0.1452ms)
+✔ new profiles retain onboarding progress and legacy calibrated profiles skip forced setup (0.3132ms)
+✔ real gateway rejects uncaptured TV actions and forwards loaded TV/fan actions once (1075.6699ms)
+ℹ tests 39
+ℹ suites 0
+ℹ pass 39
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1218.4113

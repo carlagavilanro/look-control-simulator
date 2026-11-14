@@ -1,0 +1,24 @@
+HANDS FREE SCREEN CONTROL 0.2.1 - BUILD VERIFICATION
+Date: October 13, 2026
+
+CHANGES
+- Passing accuracy checks open the control menu automatically.
+- A fitted numerical calibration is saved before the accuracy check.
+- Native profile storage and a recovery copy survive app restarts and browser-storage clearing.
+- Failed checks retain the fit and offer a check-only retry.
+- Brief blinks pause calibration collection instead of erasing a point.
+- Existing successful calibration resumes on the same camera and display.
+- Fixed Google/YouTube shortcuts also work with a mouse while eye control is off.
+- Desktop clicking, typing, capture and scrolling retain the armed/fresh-gaze input gate.
+
+PASSED
+- 62 website tests and 8 companion input/storage tests.
+- Packaged Electron setup/restart regression with synthetic gaze: 13 training points with blinks, 7 check points, automatic menu entry, five-second YouTube selection, saved-profile restart, restoration after browser-storage clearing, failed-check recovery, check-only retry, pause and resume.
+- 390px layout test with nonzero simulated error and gaze-based zoom undo.
+- Actual local MediaPipe model loading and blank-frame rejection using a simulated camera, renderer isolation, paused-input rejection and a native helper dry-run response.
+
+LIMITS OF VERIFICATION
+Gaze samples in flow tests were synthetic; this is not a measurement of a person's accuracy. Website launches in those tests were intercepted and checked for the correct URL. Real-browser visual verification was interrupted by the user. Native click/type dispatch was tested in dry-run mode, not in third-party apps.
+
+UPDATE
+Close the old companion, extract the new ZIP, and launch its executable. Refreshing the website alone does not update an already-downloaded companion. Profile files remain in the Windows user-data folder, outside the extracted app folder.

@@ -1,0 +1,7 @@
+*
+!Dockerfile
+!cloud-server.mjs
+!public/
+!public/**
+
+!public/downloads/Hands-Free-Screen-Control-Windows.zip

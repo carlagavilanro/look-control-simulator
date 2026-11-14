@@ -1,0 +1,10 @@
+Direct eye-crop inference
+MediaPipe Iris model (Google); TensorFlow.js graph conversion by Vladimir Mandic.
+Model source: https://github.com/vladmandic/human-models/tree/main/models (iris.json, iris.bin).
+Model metadata identifies google/mediapipe as its generator and vladmandic as converter.
+Original model: https://storage.googleapis.com/mediapipe-assets/iris_landmark.tflite
+Conversion repository license: Iris-model-LICENSE.txt (MIT).
+TensorFlow.js and its WASM backend, pinned version 4.22.0: TensorFlow-LICENSE.txt (Apache 2.0).
+The application uses its own eye-region selection, feature extraction and validation.
+These models estimate eye landmarks; they do not directly provide screen gaze coordinates.
+Models and inference assets are bundled locally; camera images are never uploaded.

@@ -1,0 +1,39 @@
+name: Hands Free
+on:
+  push:
+    paths: ['hands-free/**', '.github/workflows/hands-free.yml']
+  pull_request:
+    paths: ['hands-free/**', '.github/workflows/hands-free.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install companion build dependencies
+        run: npm ci --no-audit --no-fund
+        working-directory: hands-free/desktop-control
+      - name: Build the Windows companion
+        run: npm run package
+        working-directory: hands-free/desktop-control
+      - name: Package and verify the download
+        run: python tools/package-windows.py
+        working-directory: hands-free
+      - name: Website and tracking tests
+        run: node --test website/test/*.test.mjs
+        working-directory: hands-free
+      - name: Companion storage and input-policy tests
+        run: node --test desktop-control/test/*.test.mjs
+        working-directory: hands-free
+      - name: Firmware signal and receiver-archive tests
+        run: node --test hardware/test/*.test.mjs
+        working-directory: hands-free

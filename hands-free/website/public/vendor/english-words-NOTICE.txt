@@ -1,0 +1,13 @@
+Hands Free English typing dictionary
+
+Source: Hermit Dave, FrequencyWords, English 2018 frequency list (OpenSubtitles2018).
+https://github.com/hermitdave/FrequencyWords/blob/master/content/2018/en/en_50k.txt
+Source licensing: https://github.com/hermitdave/FrequencyWords#license
+Content licensed under Creative Commons Attribution-ShareAlike 4.0 International:
+https://creativecommons.org/licenses/by-sa/4.0/legalcode
+
+Changes: filtered to the first 20,000 lowercase alphabetic English tokens, optionally
+containing an apostrophe, with lengths 2 through 24; converted to word/count JSON.
+This derived JSON is distributed under the same CC BY-SA 4.0 license. No endorsement
+by the original authors is implied. The application code has its separate license.
+The bundled list contains vocabulary, not user typing or personalized history.

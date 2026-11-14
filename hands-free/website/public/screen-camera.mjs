@@ -1,5 +1,9 @@
 import {validEyeRegions} from './screen-eye-crop.mjs';
 // Hardware settings and numerical eye regions only. No video frames persisted.
+// Close-up maps depend on how the eye boxes are framed and read. Revision 2
+// (0.4.17) frames them from eye spacing and averages several boxes, so maps
+// made with the earlier tracker must be re-made rather than silently reused.
+export const EYE_TRACKER_REVISION=2;
 export const CAMERA_CONTROLS=['zoom','pan','tilt','focusMode','focusDistance','exposureMode','exposureTime','whiteBalanceMode','colorTemperature','brightness','contrast','saturation','sharpness'];
 // C60E Dual's own control software selects its physical wide/near lens by
 // writing the minimum/maximum UVC zoom value. This is model-specific: never
@@ -62,14 +66,17 @@ export class CameraZoomQueue{
 }
 export function cameraSnapshot(track,{lens='unspecified',externalZoom=null,mode='auto',crop,trackingMode='face',eyeRegions}={}){
  const s=track.getSettings();
- return {cameraVersion:1,deviceId:s.deviceId||'',cameraLabel:track.label||'',width:s.width,height:s.height,frameRate:s.frameRate||0,cameraMode:mode,lens,externalZoom,...(crop?{crop:{zoom:crop.zoom??1,x:crop.x??.5,y:crop.y??.5}}:{}),...(trackingMode==='eyes'?{trackingMode,eyeRegions:eyeRegions?.map(r=>({x:r.x,y:r.y,size:r.size}))}:{}),
+ return {cameraVersion:1,deviceId:s.deviceId||'',cameraLabel:track.label||'',width:s.width,height:s.height,frameRate:s.frameRate||0,cameraMode:mode,lens,externalZoom,...(crop?{crop:{zoom:crop.zoom??1,x:crop.x??.5,y:crop.y??.5}}:{}),...(trackingMode==='eyes'?{trackingMode,eyeTracker:EYE_TRACKER_REVISION,eyeRegions:eyeRegions?.map(r=>({x:r.x,y:r.y,size:r.size}))}:{}),
   controls:Object.fromEntries(CAMERA_CONTROLS.filter(k=>typeof s[k]==='string'||Number.isFinite(s[k])).map(k=>[k,s[k]]))};
 }
 export function sameCameraGeometry(a,b){
  if(!a?.cameraVersion&&!b?.cameraVersion)return true; // Legacy-to-legacy comparisons only.
  if(a?.cameraVersion!==1||b?.cameraVersion!==1)return false;
  if((a.trackingMode||'face')!==(b.trackingMode||'face'))return false;
- if(a.trackingMode==='eyes'&&(!validEyeRegions(a.eyeRegions)||!validEyeRegions(b.eyeRegions)||a.eyeRegions.some((r,i)=>['x','y','size'].some(k=>Math.abs(r[k]-b.eyeRegions[i][k])>1e-8))))return false;
+ // Eye boxes only say where close-up tracking starts. The tracker follows the
+ // eyes and finds them again by itself, and the head-position limits decide
+ // whether a saved map still applies, so differing boxes are the same setup.
+ if(a.trackingMode==='eyes'&&(!validEyeRegions(a.eyeRegions)||!validEyeRegions(b.eyeRegions)||(a.eyeTracker||1)!==(b.eyeTracker||1)))return false;
  if(a.lens!==b.lens||a.externalZoom!==b.externalZoom)return false;
  const ac=a.crop||{zoom:1,x:.5,y:.5},bc=b.crop||{zoom:1,x:.5,y:.5};
  if(['zoom','x','y'].some(k=>ac[k]!==bc[k]))return false;
@@ -89,7 +96,9 @@ export async function restoreCameraControls(track,saved){
  }
  if(Object.keys(values).length)await track.applyConstraints({advanced:[values]});
  // advanced constraints may be ignored by a driver. Verify actual geometry.
- const now=cameraSnapshot(track,{lens:saved.lens,externalZoom:saved.externalZoom,crop:saved.crop,trackingMode:saved.trackingMode,eyeRegions:saved.eyeRegions});
+ // This checks camera zoom and framing only. Whether a close-up map was made by
+ // the current tracker is decided separately, when the map is about to be used.
+ const now={...cameraSnapshot(track,{lens:saved.lens,externalZoom:saved.externalZoom,crop:saved.crop,trackingMode:saved.trackingMode,eyeRegions:saved.eyeRegions}),eyeTracker:saved.eyeTracker};
  if(!sameCameraGeometry(saved,now))throw Error('Saved zoom or framing could not be restored. Set the camera to its saved settings, or start a new calibration.');
 }
 export function cameraSetupFields(s){
@@ -105,5 +114,6 @@ export function cameraSetupFields(s){
  }
  if(s.crop){if(!['zoom','x','y'].every(k=>Number.isFinite(s.crop[k])))throw Error('Invalid camera crop');cameraCrop(s.width,s.height,s.crop);}
  if(s.trackingMode!==undefined&&!['face','eyes'].includes(s.trackingMode)||s.trackingMode==='eyes'&&!validEyeRegions(s.eyeRegions))throw Error('Invalid eye tracking mode or regions');
- return {cameraVersion:1,cameraLabel:s.cameraLabel,cameraMode:s.cameraMode,lens:s.lens,externalZoom:s.externalZoom,frameRate:s.frameRate,controls,...(s.crop?{crop:{zoom:s.crop.zoom,x:s.crop.x,y:s.crop.y}}:{}),...(s.trackingMode==='eyes'?{trackingMode:'eyes',eyeRegions:s.eyeRegions.map(r=>({x:r.x,y:r.y,size:r.size}))}:{})};
+ if(s.eyeTracker!==undefined&&!(Number.isInteger(s.eyeTracker)&&s.eyeTracker>=1&&s.eyeTracker<=99))throw Error('Invalid eye tracker revision');
+ return {cameraVersion:1,cameraLabel:s.cameraLabel,cameraMode:s.cameraMode,lens:s.lens,externalZoom:s.externalZoom,frameRate:s.frameRate,controls,...(s.crop?{crop:{zoom:s.crop.zoom,x:s.crop.x,y:s.crop.y}}:{}),...(s.trackingMode==='eyes'?{trackingMode:'eyes',...(s.eyeTracker!==undefined?{eyeTracker:s.eyeTracker}:{}),eyeRegions:s.eyeRegions.map(r=>({x:r.x,y:r.y,size:r.size}))}:{})};
 }

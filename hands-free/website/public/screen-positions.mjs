@@ -1,4 +1,4 @@
-import {validModel,headRejections,predictDetailed,fitHeadCompensation,quantile} from './screen-gaze.mjs';
+import {validModel,headRejections,predictDetailed,fitHeadCompensation,quantile,poseZoom,screenPoint} from './screen-gaze.mjs';
 
 const compensationCache=new WeakMap();
 function compensationFor(entries,eligible){
@@ -25,7 +25,7 @@ export function savedHeadPositions(record){
 }
 export function headDistance(f,head){
  if(!f||!head)return Infinity;
- const values=[(f.x-head.x)/.05,(f.y-head.y)/.05,(f.scale/head.scale-1)/.18,(f.roll-head.roll)/.12];
+ const limit=.05*poseZoom(head.scale),values=[(f.x-head.x)/limit,(f.y-head.y)/limit,(f.scale/head.scale-1)/.18,(f.roll-head.roll)/.12];
  for(const key of ['yaw','pitch'])if(head[key]!==undefined)values.push((f[key]-head[key])/.07);
  return values.every(Number.isFinite)?Math.sqrt(values.reduce((s,v)=>s+v*v,0)/values.length):Infinity;
 }
@@ -33,7 +33,10 @@ export function headDistance(f,head){
 // where the eyes are pointing. Gaze remains an input to every source map.
 const baseFields=['x','y','scale','roll'];
 const scales={x:.05,y:.05,roll:.12,yaw:.07,pitch:.07};
-function delta(a,b,fields){return fields.map(k=>k==='scale'?Math.log(a.scale/b.scale)/Math.log(1.18):(a[k]-b[k])/scales[k]);}
+// Sideways and up/down units follow the apparent head size (see poseZoom), so a
+// zoomed-in view is not treated as a large movement for a small real one.
+const shiftUnit=(k,scale)=>scales[k]*(k==='x'||k==='y'?poseZoom(scale):1);
+function delta(a,b,fields){const scale=Math.sqrt(a.scale*b.scale);return fields.map(k=>k==='scale'?Math.log(a.scale/b.scale)/Math.log(1.18):(a[k]-b[k])/shiftUnit(k,scale));}
 const norm=v=>Math.hypot(...v);
 const dot=(a,b)=>a.reduce((s,v,i)=>s+v*b[i],0);
 
@@ -69,7 +72,7 @@ export function nextHeadPosition(entries,{skip=[],span=.75}={}){
  for(const c of ranked)c.score=variance(c.vector)+.15*c.gap;
  ranked.sort((a,b)=>b.score-a.score);
  const best=ranked[0];if(!best)return null;
- const target=Object.fromEntries(fields.map((key,i)=>[key,key==='scale'?reference.scale*Math.exp(best.vector[i]*Math.log(1.18)):reference[key]+best.vector[i]*scales[key]]));
+ const target=Object.fromEntries(fields.map((key,i)=>[key,key==='scale'?reference.scale*Math.exp(best.vector[i]*Math.log(1.18)):reference[key]+best.vector[i]*shiftUnit(key,reference.scale)]));
  return {...best,fields,reference:{...reference},target,tiltDegrees:Math.round((target.roll-reference.roll)*180/Math.PI)};
 }
 
@@ -264,7 +267,8 @@ export function estimateHeadPositions(feature,entries,{allowUnverified=false,use
  // orientation checks belonging to the newer contributors in a mixed bank.
  const headReasons=[...new Set(results.flatMap(r=>r.headReasons||[]))];
  if(headReasons.length)return {...info,entry:null,raw,point:null,reason:'head-position',headReasons};
- return {...info,raw,point:raw.x>=0&&raw.x<=1&&raw.y>=0&&raw.y<=1?raw:null,reason:raw.x>=0&&raw.x<=1&&raw.y>=0&&raw.y<=1?'usable':'outside-screen'};
+ const point=screenPoint(raw);
+ return {...info,raw,point,reason:point?'usable':'outside-screen'};
 }
 // One acquisition gate for the whole continuous map. Crossing the halfway
 // point between anchors must not restart the filter or selection countdown.

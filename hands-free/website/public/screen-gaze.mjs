@@ -23,6 +23,13 @@ const core=['h','v','x','y','scale','roll'];
 const eyes=['lh','lv','rh','rv'];
 const pose=['yaw','pitch'];
 const validFeature=f=>!!f&&core.every(k=>Number.isFinite(f[k]))&&f.scale>0;
+// Head-position limits are fractions of the camera frame, tuned for a face that
+// spans a modest part of it (eye-to-eye scale up to about a third of the frame
+// height). Optical zoom or a close-up makes the same physical movement cover
+// more of the frame, so the sideways and up/down limits grow in proportion.
+// Without this, a zoomed-in view paused for head movements of a few millimetres.
+export const POSE_REFERENCE_SCALE=.35;
+export function poseZoom(scale){return Number.isFinite(scale)&&scale>POSE_REFERENCE_SCALE?scale/POSE_REFERENCE_SCALE:1;}
 // Head alignment must keep working through a blink or unclear iris reading.
 // These are the same face coordinates used by the saved gaze maps.
 export function screenHeadFeature(p,aspect=4/3){
@@ -33,7 +40,7 @@ export function screenHeadFeature(p,aspect=4/3){
  const head={x:p[1].x,y:p[1].y,scale:Math.sqrt(w),roll:Math.atan2(dy,dx),yaw:((nose.x-left.x)*dx+(nose.y-left.y)*dy)/w,pitch:(-(nose.x-left.x)*dy+(nose.y-left.y)*dx)/w};
  return finite(Object.values(head))?head:null;
 }
-export function screenFeature(p, aspect=4/3, imageHeight=720, diagnostics=null) {
+export function screenFeature(p, aspect=4/3, imageHeight=720, diagnostics=null, agreement=null) {
   const reject=reason=>{if(diagnostics)diagnostics.reason=reason;return null;};
   if(diagnostics){diagnostics.reason='usable';diagnostics.eyePixels=[];diagnostics.openings=[];}
   if (!p || p.length<478 || !finite([aspect,imageHeight]) || aspect<=0 || imageHeight<=0) return reject('no-face');
@@ -61,7 +68,9 @@ export function screenFeature(p, aspect=4/3, imageHeight=720, diagnostics=null) 
   }
   const a=eye(33,133,468,159,145),b=eye(362,263,473,386,374);
   if(!a||!b)return null;
-  if(Math.abs(a.x-b.x)>.20||Math.abs(a.y-b.y)>.12)return reject('disagreement');
+  // With an agreement tracker, compare against this person's usual difference
+  // between the two eyes rather than against zero.
+  if(agreement?!agreement.check(a.x-b.x,a.y-b.y):Math.abs(a.x-b.x)>.20||Math.abs(a.y-b.y)>.12)return reject('disagreement');
   const head=screenHeadFeature(p,aspect);if(!head)return reject('landmarks');
   const f={h:(a.x+b.x)/2,v:(a.y+b.y)/2,lh:a.x,lv:a.y,rh:b.x,rv:b.y,...head};
   return finite(Object.values(f))?f:null;
@@ -74,7 +83,7 @@ export function summarize(samples) {
   const mad=Object.fromEntries(['h','v'].map(k=>[k,median(usable.map(f=>Math.abs(f[k]-center[k])))]));
   if(mad.h>.025||mad.v>.018)throw Error('Eye samples moved too much. Please try that point again.');
   const headFields=fields.filter(k=>!['h','v',...eyes].includes(k));
-  const floors={x:.003,y:.003,scale:.005,roll:.015,yaw:.01,pitch:.01};
+  const zoom=poseZoom(center.scale),floors={x:.003*zoom,y:.003*zoom,scale:.005,roll:.015,yaw:.01,pitch:.01};
   const headSpread=Object.fromEntries(headFields.map(k=>[k,Math.max(floors[k],4*median(usable.map(f=>Math.abs(f[k]-center[k]))))]));
   const kept=usable.filter(f=>Math.abs(f.h-center.h)<=Math.max(.0015,4*mad.h)&&Math.abs(f.v-center.v)<=Math.max(.001,4*mad.v)&&headFields.every(k=>Math.abs(f[k]-center[k])<=headSpread[k]));
   if(kept.length<16||kept.length<usable.length*.7)throw Error('Eye samples were inconsistent. Please try that point again.');
@@ -86,7 +95,8 @@ export function settledSummary(samples){
   if(Math.abs(median(usable.slice(0,half).map(f=>f[key]))-median(usable.slice(half).map(f=>f[key])))>limit)
    throw Error('Your gaze is still settling. Keep looking at this dot.');
  }
- for(const [key,limit] of [['x',.0125],['y',.0125],['roll',.03],['yaw',.025],['pitch',.025]]){
+ const zoom=poseZoom(summary.scale);
+ for(const [key,limit] of [['x',.0125*zoom],['y',.0125*zoom],['roll',.03],['yaw',.025],['pitch',.025]]){
   if(usable.every(f=>Number.isFinite(f[key]))&&Math.abs(median(usable.slice(0,half).map(f=>f[key]))-median(usable.slice(half).map(f=>f[key])))>limit)
    throw Error('Your head is still moving. Keep a comfortable position while this dot is measured.');
  }
@@ -131,7 +141,7 @@ export function horizontalAccuracy(perTarget){
    usable:items.length?Math.round(items.reduce((s,p)=>s+p.validFraction,0)/items.length*100):0};
  };
  const left=side(perTarget.filter(p=>p.x<.45)),right=side(perTarget.filter(p=>p.x>.55));
- const text=`Screen sides Â· average per-target 90% error: left ${left.p90Pixels??'unavailable'} px / right ${right.p90Pixels??'unavailable'} px. Usable: ${left.usable}% / ${right.usable}%.`;
+ const text=`Screen sides · average per-target 90% error: left ${left.p90Pixels??'unavailable'} px / right ${right.p90Pixels??'unavailable'} px. Usable: ${left.usable}% / ${right.usable}%.`;
  return {left,right};
 }
 
@@ -371,13 +381,23 @@ export function validModel(m){
 }
 export function headRejections(f,m){
  if(!validFeature(f)||!m?.head)return ['unavailable'];
- const differences={x:Math.abs(f.x-m.head.x)/.05,y:Math.abs(f.y-m.head.y)/.05,scale:Math.abs(f.scale/m.head.scale-1)/.18,roll:Math.abs(f.roll-m.head.roll)/.12};
+ const limit=.05*poseZoom(m.head.scale),differences={x:Math.abs(f.x-m.head.x)/limit,y:Math.abs(f.y-m.head.y)/limit,scale:Math.abs(f.scale/m.head.scale-1)/.18,roll:Math.abs(f.roll-m.head.roll)/.12};
  for(const key of pose)if(m.head[key]!==undefined)differences[key]=Math.abs(f[key]-m.head[key])/.07;
  return Object.entries(differences).filter(([,v])=>!Number.isFinite(v)||v>=1).map(([key])=>key);
 }
 export function headMatches(f,m){return headRejections(f,m).length===0;}
 export function predict(f,m){
  return predictDetailed(f,m).point;
+}
+// A look at a control on the screen edge scatters to both sides of that edge.
+// Rejecting every estimate that lands just past it interrupted tracking there
+// again and again, so edge controls were the hardest to hold. Estimates within
+// a small allowance are kept and placed on the edge; anything further out is
+// still rejected. The unclipped estimate stays in `raw` for accuracy reports.
+export const EDGE_ALLOWANCE=.04;
+export function screenPoint(raw){
+ if(!raw||![raw.x,raw.y].every(v=>Number.isFinite(v)&&v>=-EDGE_ALLOWANCE&&v<=1+EDGE_ALLOWANCE))return null;
+ return {x:Math.max(0,Math.min(1,raw.x)),y:Math.max(0,Math.min(1,raw.y))};
 }
 export function predictDetailed(f,m){
  if(!validModel(m))return {point:null,raw:null,reason:'no-model'};
@@ -386,8 +406,8 @@ export function predictDetailed(f,m){
  const raw=estimate(f,m);if(!finite([raw.x,raw.y]))return {point:null,raw:null,reason:'invalid-estimate'};
  const headReasons=headRejections(f,m);
  if(headReasons.length)return {point:null,raw,reason:'head-position',headReasons};
- if(raw.x<0||raw.x>1||raw.y<0||raw.y>1)return {point:null,raw,reason:'outside-screen'};
- return {point:raw,raw,reason:'usable'};
+ const point=screenPoint(raw);
+ return point?{point,raw,reason:'usable'}:{point:null,raw,reason:'outside-screen'};
 }
 export function fitAlignment(groups,model,{eyeOnly=false}={}){return fitRepair(groups,model,{eyeOnly});}
 export function fitOffset(samples,model){
@@ -416,7 +436,8 @@ function fitRepair(groups,model,{eyeOnly=false,refine=false}={}){
  // anchors must agree with EACH OTHER, rather than with yesterday's position.
  if(eyeOnly&&rows.some(g=>!headMatches(g.feature,{head})))
   throw Error('Your position changed during these five points. Settle into a comfortable position and retry the five-point eye-only repair. Your previous calibration is kept.');
- if(!eyeOnly&&rows.some(({feature:f})=>Math.abs(f.x-sourceHead.x)>.12||Math.abs(f.y-sourceHead.y)>.12||Math.abs(f.scale/sourceHead.scale-1)>.35||Math.abs(f.roll-sourceHead.roll)>.25))
+ const reach=.12*poseZoom(sourceHead.scale);
+ if(!eyeOnly&&rows.some(({feature:f})=>Math.abs(f.x-sourceHead.x)>reach||Math.abs(f.y-sourceHead.y)>reach||Math.abs(f.scale/sourceHead.scale-1)>.35||Math.abs(f.roll-sourceHead.roll)>.25))
   throw Error('Your head position changed too much to reuse the old mapping. Choose Realign after moving · 5 points to rebuild an eye-only map at your new position. Your previous calibration is kept.');
  const fitA=(rs,affine)=>{
   rs=rs.map(g=>({...g,point:estimate(g.feature,base)}));

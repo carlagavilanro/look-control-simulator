@@ -1,4 +1,52 @@
-CURRENT VERSION 0.4.16 - DIRECT EYE CLOSE-UP TRACKING
+CURRENT VERSION 0.4.17 - STEADIER EYES CLOSE-UP, FOUND AUTOMATICALLY
+Eyes close-up no longer needs the eyes marked by hand. In Set camera / preview
+both eyes are found and outlined by themselves. Find eyes automatically repeats
+the search; marking by hand remains as a fallback. During use the eyes are found
+again after a head movement or after leaving the view, so nobody has to click to
+recover tracking. Eye box size is gone: the boxes size themselves.
+
+Fixed: opening the eyes wide lost tracking. The eye boxes were sized from the
+iris model's own eye-width reading, which shrinks when a box is slightly tight.
+The boxes then tightened until tracking stopped, and they never recovered. Box
+size now follows the distance between the two eyes, which the boxes cannot
+disturb. A box may extend past the picture when the eyes fill it.
+
+Steadier readings: each eye is read from several boxes a few percent apart and
+the readings are averaged. Camera pixels inside a box are averaged into the
+model's input instead of being skipped, so a 4K picture adds detail, not noise.
+
+Zoomed-in views no longer pause for small head movements. The sideways and
+up/down head limits were fractions of the picture, so a close-up allowed only a
+few millimetres. They now grow with how large the head appears. Distance and
+tilt limits are unchanged. This applies to both tracking modes, to calibration
+("your head is still moving") and to saved head positions.
+
+The two eyes are now compared against their usual difference instead of against
+zero, with the same tolerance. The iris sits slightly toward the nose in each
+eye, so the two readings always differ a little. Compared against zero, good
+frames could be rejected when head angle or gaze direction added to that
+difference. The left / right line in results no longer shows stray characters.
+
+Controls at the screen edges are easier to hold. An estimate that lands just
+past an edge (within 4% of the screen) now counts as that edge instead of
+interrupting tracking. Such a reading can never select anything by itself, and
+accuracy checks still measure the unclipped estimate.
+
+Setup now says when the other mode suits the view better: Face + eyes suggests
+Eyes close-up when no face is found, and close-up says when the whole face fits.
+
+Eyes close-up maps saved by 0.4.16 need one new calibration, because the eyes
+are now framed and read differently. Setup says so and starts it. Face + eyes
+calibrations and saved head positions are kept.
+
+What was checked: automated tests run the bundled iris model on a drawn eye
+scene (wide-open eyes, finding the eyes, sudden movement, leaving and returning,
+zooming, boxes past the picture edge, left/right symmetry). The tracker was also
+run on one sample photograph at several zoom levels. What was not checked: your
+camera, lighting and eyes. Please run the accuracy check after calibrating.
+Blinks, glasses glare and strong head tilt have not been measured with a person.
+
+PREVIOUS VERSION 0.4.16 - DIRECT EYE CLOSE-UP TRACKING
 Choose Face + eyes for normal framing, or Eyes close-up when zoom excludes the
 whole face. Eyes close-up runs a separate MediaPipe Iris model directly on two
 selected eye crops, without a full-face detector. Both eyes, eyelids and both eye

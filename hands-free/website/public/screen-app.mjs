@@ -1,7 +1,7 @@
-import {TRAIN_TARGETS,CHECK_TARGETS,ALIGN_TARGETS,REFINE_TARGETS,calibrationTargets,settledSummary,fitCalibration,fitAlignment,fitRefinement,fitOffset,validateCalibration,predict,predictDetailed,validModel,sameSetup,quantile,GazePointer,FixationGate,TargetIntent,TargetDwell,nearTarget,contextTarget,subdivide,selectionMargin,containedTarget,chooseLayout,controlGeometry,zoomComplete} from './screen-gaze.mjs';
-import {videoConstraints,cameraSnapshot,restoreCameraControls,sameCameraGeometry,cameraCrop,CameraZoomQueue,lensControl,lensZoom,lensCalibrationBank,calibrationForLens,identifySavedLens} from './screen-camera.mjs';
+import {TRAIN_TARGETS,CHECK_TARGETS,ALIGN_TARGETS,REFINE_TARGETS,calibrationTargets,settledSummary,fitCalibration,fitAlignment,fitRefinement,fitOffset,validateCalibration,predict,predictDetailed,validModel,sameSetup,quantile,poseZoom,GazePointer,FixationGate,TargetIntent,TargetDwell,nearTarget,contextTarget,subdivide,selectionMargin,containedTarget,chooseLayout,controlGeometry,zoomComplete} from './screen-gaze.mjs';
+import {videoConstraints,cameraSnapshot,restoreCameraControls,sameCameraGeometry,cameraCrop,CameraZoomQueue,lensControl,lensZoom,lensCalibrationBank,calibrationForLens,identifySavedLens,EYE_TRACKER_REVISION} from './screen-camera.mjs';
 import {drawEyeOverlay} from './screen-eye-overlay.mjs';
-import {DEFAULT_EYE_REGIONS,eyeRegionRect,previewEyePoint,validEyeRegions} from './screen-eye-crop.mjs';
+import {DEFAULT_EYE_REGIONS,eyeRegionRect,previewEyePoint,validEyeRegions,markedEyeRegions} from './screen-eye-crop.mjs';
 import {WordSuggestions,insertText,completeWord} from './screen-typing.mjs';
 import {MAX_HEAD_POSITIONS,savedHeadPositions,HeadPositionSelector,resetDwellForPosition,estimateHeadPositions,nextHeadPosition,HeadCaptureGuide,HeadReturnGuide} from './screen-positions.mjs';
 import {focusTarget,visibleFocusTargets} from './screen-targets.mjs';
@@ -44,7 +44,7 @@ let pointRetry=null,waitingMode=null,alignmentStart=null,alignmentLast=0,lastQua
 let cameraProbe=[],cameraProbeDone=false,cameraStats=null,frameTimes=[],lastFrameReason='usable',alignmentError='';
 const REJECTION={'head-position':'outside the saved head positions','head-reacquiring':'settling into a saved head position','outside-screen':'estimate outside screen','eyes-unavailable':'eye tracking unavailable','eye-features':'incomplete eye features','invalid-estimate':'invalid estimate','no-model':'no saved map'};
 const HEAD_REASON={x:'horizontal position',y:'vertical position',scale:'distance',roll:'head tilt',yaw:'left/right rotation',pitch:'up/down rotation',unavailable:'unavailable'};
-const QUALITY={'usable':'Both eyes are clear','eye-crop-unavailable':'Keep both eyes, eyelids and corners inside the marked areas.','no-face':'Face not found. Face the camera.','landmarks':'Eye landmarks are incomplete.','too-small':'Eyes are too small in the image. Move the camera closer.','iris':'Iris details are unclear. Adjust lighting or glasses glare.','closed-eye':'One or both eyes look closed to the tracker. Adjust the camera height.','eye-edge':'Look toward the dot without turning away.','disagreement':'The two eye estimates disagree. Adjust the camera angle or eye markings.'};
+const QUALITY={'usable':'Both eyes are clear','eye-crop-unavailable':'Both eyes are not clear. Keep both eyes open and in view.','searching':'Looking for both eyes. Keep both eyes in view of the camera.','no-face':'Face not found. Face the camera.','landmarks':'Eye landmarks are incomplete.','too-small':'Eyes are too small in the image. Zoom in or move the camera closer.','iris':'Iris details are unclear. Adjust lighting or glasses glare.','closed-eye':'One or both eyes look closed to the tracker. Adjust the camera height.','eye-edge':'Look toward the dot without turning away.','disagreement':'The two eyes read differently. Check the camera angle and lighting.'};
 document.body.classList.toggle('desktop',!!desktop);$('browser-info').hidden=!!desktop;
 $('quit').hidden=!desktop;$('quit').onclick=()=>desktop?.quit();
 if(!desktop)$('start').textContent='Try eye control in this browser';
@@ -69,30 +69,31 @@ function isEyeCrop(){return $('tracking-mode').value==='eyes';}
 function setupStamp(){const track=stream?.getVideoTracks()[0],physical=lensControl(track);return {...(track?cameraSnapshot(track,{lens:physical.lens||$('camera-lens').value,externalZoom:physical.supported?null:$('camera-remote-zoom').value?Number($('camera-remote-zoom').value):null,mode:$('camera-mode').value,crop:frameCrop,trackingMode:$('tracking-mode').value,eyeRegions}):{}),screenWidth:innerWidth,screenHeight:innerHeight,pixelRatio:devicePixelRatio};}
 let cameraChoiceDirty=false,cameraSettingsAt=0,chosenCameraSettings=null;
 let frameCrop={zoom:1,x:.5,y:.5},zoomQueue=null,cameraPreviewTimer=null,lensBusy=false;
-let eyeRegions=DEFAULT_EYE_REGIONS.map(r=>({...r})),eyeMark=0;
+let eyeRegions=DEFAULT_EYE_REGIONS.map(r=>({...r})),eyeMark=0,trackedRegions=null,noFaceSince=null;
 function drawEyeRegions(){
  const settings=stream?.getVideoTracks()[0]?.getSettings();if(!settings)return;
  const c=cameraCrop(settings.width,settings.height,frameCrop),canvas=$('eye-regions');canvas.width=c.width;canvas.height=c.height;
  const ctx=canvas.getContext('2d');ctx.lineWidth=Math.max(2,c.width/400);ctx.setLineDash([c.width/80,c.width/160]);
- eyeRegions.forEach((r,i)=>{const box=eyeRegionRect(r,c.width,c.height);ctx.strokeStyle=i===0?'#00cfff':'#ffdd32';ctx.strokeRect(box.x,box.y,box.size,box.size);});
+ // Show where the tracker is reading now; the marked boxes are only its start.
+ (validEyeRegions(trackedRegions)?trackedRegions:eyeRegions).forEach((r,i)=>{const box=eyeRegionRect(r,c.width,c.height);ctx.strokeStyle=i===0?'#00cfff':'#ffdd32';ctx.strokeRect(box.x,box.y,box.size,box.size);});
 }
 function trackingUI(){
  document.body.classList.toggle('eyes-tracking',isEyeCrop());$('eye-crop-setup').hidden=!isEyeCrop();$('eye-regions').hidden=!isEyeCrop()||stage!=='camera-preview';
- $('camera').classList.toggle('eye-setup',isEyeCrop()&&stage==='camera-preview');$('eye-region-size').value=eyeRegions[0].size;
+ $('camera').classList.toggle('eye-setup',isEyeCrop()&&stage==='camera-preview');
  if(stage==='camera-preview'&&isEyeCrop())drawEyeRegions();
 }
 function updateEyeRegions(){
- cameraChoiceDirty=true;chosenCameraSettings=null;drawEyeRegions();worker?.postMessage({type:'regions',eyeRegions});
+ cameraChoiceDirty=true;chosenCameraSettings=null;trackedRegions=null;drawEyeRegions();worker?.postMessage({type:'regions',eyeRegions});
 }
 for(let i=0;i<2;i++)$('mark-eye-'+i).onclick=()=>{eyeMark=i;report('Click the center of eye '+(i+1)+' in the preview.');};
 $('eye-regions').onclick=e=>{
  if(stage!=='camera-preview'||!isEyeCrop())return;
  const s=stream.getVideoTracks()[0].getSettings(),c=cameraCrop(s.width,s.height,frameCrop),point=previewEyePoint(e.clientX,e.clientY,$('eye-regions').getBoundingClientRect(),c.width,c.height);
- if(!point)return;eyeRegions=eyeRegions.map((r,i)=>i===eyeMark?{...r,...point}:r);
+ if(!point)return;eyeRegions=markedEyeRegions(eyeRegions.map((r,i)=>i===eyeMark?{...r,...point}:r),c.width,c.height);
  if(!validEyeRegions(eyeRegions)){report('Mark two different eyes.');drawEyeRegions();return;}
- updateEyeRegions();eyeMark=1-eyeMark;report('Eye marked. Check that each box includes the eyelids and both corners.');
+ updateEyeRegions();eyeMark=1-eyeMark;report('Eye marked. The boxes size themselves from the distance between your eyes and then follow them.');
 };
-$('eye-region-size').oninput=()=>{eyeRegions=eyeRegions.map(r=>({...r,size:Number($('eye-region-size').value)}));updateEyeRegions();};
+$('find-eyes').onclick=()=>{if(stage!=='camera-preview'||!isEyeCrop()||!worker)return;trackedRegions=null;worker.postMessage({type:'find'});report('Looking for both eyes…');};
 function cameraPresetBank(){
  const saved=nativeProfiles.find(p=>p.name.toLocaleLowerCase()===profileKey())?.record;let local=[];
  try{local=JSON.parse(localStorage.getItem('hands-free.camera-framing.'+profileKey())||'[]');}catch{}
@@ -152,13 +153,14 @@ for(const lens of ['wide','telephoto'])$('camera-lens-'+lens).onclick=async()=>{
   if(saved){await restoreCameraControls(track,saved);frameCrop=saved.crop||{zoom:1,x:.5,y:.5};if(saved.eyeRegions)eyeRegions=saved.eyeRegions.map(r=>({...r}));}
   else frameCrop={zoom:1,x:.5,y:.5};
   cameraChoiceDirty=true;chosenCameraSettings=null;updateCropControls();cameraZoomControls();
-  if(isEyeCrop())worker?.postMessage({type:'regions',eyeRegions});
-  report((lens==='wide'?'Wide-angle':'Telephoto')+' lens selected. '+(saved?'Saved framing restored.':isEyeCrop()?'Mark both eyes in the preview.':'Keep your full face visible, then use these settings.'));
+  // A different lens is a different view: start from any saved boxes, otherwise look afresh.
+  if(isEyeCrop()){trackedRegions=null;worker?.postMessage({type:'regions',eyeRegions});if(!saved?.eyeRegions)worker?.postMessage({type:'find'});}
+  report((lens==='wide'?'Wide-angle':'Telephoto')+' lens selected. '+(saved?'Saved framing restored.':isEyeCrop()?'Looking for both eyes in the new view.':'Keep your full face visible, then use these settings.'));
  }catch(e){report('Lens switch: '+e.message);}finally{cameraBusy(false);if(stage==='camera-preview')cameraZoomControls();}
 };
 $('restore-lens-framing').onclick=async()=>{
  const s=lensPreset(),track=stream?.getVideoTracks()[0];if(!s||!track)return;
- cameraBusy(true);try{await restoreCameraControls(track,s);frameCrop=s.crop||{zoom:1,x:.5,y:.5};if(s.eyeRegions)eyeRegions=s.eyeRegions.map(r=>({...r}));updateCropControls();cameraZoomControls();if(isEyeCrop())worker?.postMessage({type:'regions',eyeRegions});report('Saved framing restored.');}catch(e){report(e.message);}finally{cameraBusy(false);}
+ cameraBusy(true);try{await restoreCameraControls(track,s);frameCrop=s.crop||{zoom:1,x:.5,y:.5};if(s.eyeRegions)eyeRegions=s.eyeRegions.map(r=>({...r}));updateCropControls();cameraZoomControls();if(isEyeCrop()){trackedRegions=null;worker?.postMessage({type:'regions',eyeRegions});}report('Saved framing restored.');}catch(e){report(e.message);}finally{cameraBusy(false);}
 };
 $('windows-camera-settings').hidden=!desktop?.openCameraSettings;
 $('windows-camera-settings').onclick=()=>desktop?.openCameraSettings().catch(()=>report('Open Windows Settings → Bluetooth & devices → Cameras.'));
@@ -187,6 +189,7 @@ function cameraZoomControls(preserveSlider=false){
 }
 function finishCameraPreview(){
  if(lensBusy||zoomQueue?.running)return;
+ if(isEyeCrop()&&validEyeRegions(trackedRegions))eyeRegions=trackedRegions.map(r=>({...r}));
  if(isEyeCrop()&&!validEyeRegions(eyeRegions)){report('Mark two different eyes before continuing.');return;}
  sessionSetup=setupStamp();rememberCameraPreset(sessionSetup);chosenCameraSettings=sessionSetup;worker?.terminate();worker=null;ready=false;inFlight=false;$('eye-regions').hidden=true;$('camera-settings').hidden=true;document.body.classList.remove('camera-preview');
  clearTimeout(cameraPreviewTimer);cameraPreviewTimer=null;cameraChoiceDirty=true;stage='camera-ready';$('workspace').hidden=true;$('welcome').hidden=false;$('camera').hidden=true;$('tracking-info').hidden=true;refreshProfile();const saved=loadSaved();report(saved&&sameSetup(saved.setup,sessionSetup)?'Framing kept. This lens’s saved calibration is ready.':'Framing kept. Calibrate this lens when ready.');
@@ -231,9 +234,12 @@ async function saveModel(updatePosition=true){
  refreshProfile();
 }
 function refreshProfile(){
- const saved=loadSaved(),usable=saved&&validModel(saved.model);cameraPreferences(saved);
+ const saved=loadSaved(),known=saved&&validModel(saved.model);cameraPreferences(saved);
+ // A close-up map made by an earlier tracker reads the eyes differently. Offer a
+ // new calibration instead of quietly pointing with the old one.
+ const outdated=known&&saved.setup?.trackingMode==='eyes'&&(saved.setup.eyeTracker||1)!==EYE_TRACKER_REVISION,usable=known&&!outdated;
  const prepared=saved&&(stage==='camera-ready'&&sessionSetup&&sameSetup(saved.setup,sessionSetup)||chosenCameraSettings&&sameSetup(saved.setup,chosenCameraSettings));
- $('start').textContent=usable?(cameraChoiceDirty&&!prepared||!saved.setup?.cameraVersion?'Start new calibration':'Use saved calibration'):desktop?'Start camera & setup':'Try eye control in this browser';
+ $('start').textContent=known?(outdated||cameraChoiceDirty&&!prepared||!saved.setup?.cameraVersion?'Start new calibration':'Use saved calibration'):desktop?'Start camera & setup':'Try eye control in this browser';
  $('restore').hidden=!usable;
  $('return-saved').hidden=!usable;
  $('align-saved').hidden=!usable;
@@ -241,7 +247,7 @@ function refreshProfile(){
  $('positions-saved').hidden=!usable;
  $('positions-count').textContent=usable?`${savedHeadPositions(saved).length} head position(s) saved`:'';
  $('test-saved').hidden=!usable;$('test-description').hidden=!usable;
- $('profile-status').textContent=usable?(saved.validation?.passed?'Calibration saved':'Calibration saved · alignment needed'):'Create a calibration for this profile';$('new-calibration').hidden=!usable;
+ $('profile-status').textContent=outdated?'Eyes close-up tracking changed in version 0.4.17. This profile needs one new calibration for close-up mode.':known?(saved.validation?.passed?'Calibration saved':'Calibration saved · alignment needed'):'Create a calibration for this profile';$('new-calibration').hidden=!usable;
 }
 function restorePositionBackup(){
  if(!positionSession)return;
@@ -285,7 +291,7 @@ function startHeadPosition(id=Math.max(0,...headPositions.map(e=>e.id))+1){
 }
 function guideTransform(head,reference,side=false){
  const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
- const x=(side?345:115)-(head.x-reference.x)/.05*36,y=110+(head.y-reference.y)/.05*36;
+ const unit=.05*poseZoom(reference.scale),x=(side?345:115)-(head.x-reference.x)/unit*36,y=110+(head.y-reference.y)/unit*36;
  const angle=side?(head.pitch-reference.pitch)/.07*18:-(head.roll-reference.roll)*180/Math.PI;
  return `translate(${clamp(x,side?290:55,side?400:175)} ${clamp(y,65,155)}) rotate(${clamp(Number.isFinite(angle)?angle:0,-25,25)}) scale(${clamp(head.scale/reference.scale,.65,1.4)})`;
 }
@@ -428,7 +434,7 @@ async function startCamera(mode='resume'){
   if(mode==='camera'){
    stage='camera-preview';zoomQueue=new CameraZoomQueue(stream.getVideoTracks()[0]);updateCropControls();document.body.classList.add('camera-preview');$('camera-settings').hidden=false;$('mode-label').textContent='Camera preview';cameraZoomControls();
    const s=stream.getVideoTracks()[0].getSettings();$('camera-live').textContent=`${stream.getVideoTracks()[0].label} · ${s.width} × ${s.height} · ${Math.round(s.frameRate||0)} capture fps`;
-   cameraBusy(false);trackingUI();report(isEyeCrop()?'Mark both eyes. Include eyelids and both eye corners.':'Keep your full face visible. Choose a lens, then use these settings.');cameraPreviewPoll(current);
+   cameraBusy(false);trackingUI();report(isEyeCrop()?'Finding both eyes. Keep both eyes in view; nothing needs to be clicked.':'Keep your full face visible. Choose a lens, then use these settings.');cameraPreviewPoll(current);
    if(!isEyeCrop()){frame(current);return;}
   }
   cameraSettingsAt=0;
@@ -438,27 +444,35 @@ async function startCamera(mode='resume'){
    if(current!==generation)return;
    if(data.type==='ready'){
     ready=true;
-    if(mode==='camera'){report('Mark each eye, then check the blue iris outlines.');return;}
+    if(mode==='camera'){report('Check that the blue outlines follow both eyes. If they do not, choose Find eyes automatically or click each eye.');return;}
     if(mode==='find'){
      stage='starting';try{await startAligned(mode);}catch(e){fail(e.message);}return;
     }
-    waitingMode=mode;alignmentStart=null;stage='align';$('mode-label').textContent='Camera check';$('tiles').hidden=true;$('cal-dot').hidden=true;setCameraPreview(true);$('tracking-info').hidden=false;report(isEyeCrop()?'Keep both eyes inside the marked areas. Calibration starts when they are clear.':'Face the camera. Calibration starts when both eyes are clear.');return;
+    waitingMode=mode;alignmentStart=null;stage='align';$('mode-label').textContent='Camera check';$('tiles').hidden=true;$('cal-dot').hidden=true;setCameraPreview(true);$('tracking-info').hidden=false;report(isEyeCrop()?'Keep both eyes in view. Calibration starts when they are clear.':'Face the camera. Calibration starts when both eyes are clear.');return;
    }
    if(data.type==='error'){inFlight=false;fail('Eye model could not run: '+data.message);return;}
    if(data.type==='sample'){
     inFlight=false;lastReceived=performance.now();drawEyes(data.eyes,data.width,data.height);
+    if(data.regions&&isEyeCrop()){trackedRegions=data.regions;if(stage==='camera-preview')drawEyeRegions();}
     const reason=data.quality?.reason||(data.feature?'usable':'no-face');lastFrameReason=reason;lastQuality=QUALITY[reason]||'Waiting for clear eyes';
-    const delay=Math.max(0,lastReceived-data.timestamp);cameraProbe.push(delay);if(cameraProbe.length>60)cameraProbe.shift();frameTimes.push(lastReceived);frameTimes=frameTimes.filter(t=>lastReceived-t<3000);
-    cameraStats={width:$('video').videoWidth,height:$('video').videoHeight,processedWidth:data.width,processedHeight:data.height,cropZoom:frameCrop.zoom,processingMs:Math.round(quantile(cameraProbe,.5)),fps:frameTimes.length>1?Math.round((frameTimes.length-1)*1000/(lastReceived-frameTimes[0])):0,eyePixels:data.quality?.eyePixels||[]};
+    // A whole-frame eye search is slow by design; it says nothing about per-frame speed.
+    const delay=Math.max(0,lastReceived-data.timestamp);if(reason!=='searching'){cameraProbe.push(delay);if(cameraProbe.length>60)cameraProbe.shift();}frameTimes.push(lastReceived);frameTimes=frameTimes.filter(t=>lastReceived-t<3000);
+    cameraStats={width:$('video').videoWidth,height:$('video').videoHeight,processedWidth:data.width,processedHeight:data.height,cropZoom:frameCrop.zoom,processingMs:cameraProbe.length?Math.round(quantile(cameraProbe,.5)):0,fps:frameTimes.length>1?Math.round((frameTimes.length-1)*1000/(lastReceived-frameTimes[0])):0,eyePixels:data.quality?.eyePixels||[]};
     const cameraText=`${cameraStats.width} × ${cameraStats.height} · ${cameraStats.fps} tracking fps · ${cameraStats.processingMs} ms processing`;
     $('camera-stats').textContent=cameraText;
-    if(stage==='camera-preview'){$('eye-crop-status').textContent=lastQuality+(cameraStats.eyePixels.length?' · '+cameraStats.eyePixels.join(' / ')+' px':'')+' · '+cameraStats.fps+' fps';return;}
+    if(stage==='camera-preview'){
+     // Each mode suits a different view; say so when the other one would also work.
+     const spacing=validEyeRegions(trackedRegions)?Math.hypot(trackedRegions[1].x-trackedRegions[0].x,(trackedRegions[1].y-trackedRegions[0].y)*data.height/data.width):1;
+     $('eye-crop-status').textContent=(reason==='usable'&&spacing<.2?'Your whole face fits in this view, so Face + eyes would also work and can follow head turns. ':'')+lastQuality+(cameraStats.eyePixels.length?' · eye width '+cameraStats.eyePixels.join(' / ')+' px'+(Math.min(...cameraStats.eyePixels)<56?' · small: zoom in or raise the resolution for more detail':''):'')+' · '+cameraStats.fps+' fps';return;
+    }
     if(lastReceived-lastQualityAt>200){lastQualityAt=lastReceived;$('tracking-info').textContent=lastQuality+(cameraStats.eyePixels.length?' · Eye detail: '+cameraStats.eyePixels.join(' / ')+' px':'')+' · '+cameraText;}
     if(!['resizing','camera-adjust'].includes(stage)&&lastReceived-cameraSettingsAt>1000){cameraSettingsAt=lastReceived;
      const currentSetup=setupStamp();if(sessionSetup&&!sameSetup(sessionSetup,currentSetup)){fail('Camera zoom, framing, or resolution changed. Restore the saved settings or start a new calibration.');return;}
     }
     if(stage==='resizing'||stage==='point-help'||stage==='camera-adjust')return;
     if(stage==='align'){
+     // Each mode suits a different view. Say so when this one cannot see what it needs.
+     if(!isEyeCrop()&&reason==='no-face'){noFaceSince??=lastReceived;if(lastReceived-noFaceSince>4000)report('Face not found. If the camera is zoomed in on your eyes, go back and choose Tracking: Eyes close-up.');}else noFaceSince=null;
      if($('camera-mode').value!=='auto'&&cameraStats.fps>0&&cameraStats.fps<10)report('Tracking is slow at this resolution. You can choose 1080p in setup; resolution will stay as selected.');
      if(!cameraProbeDone&&$('camera-mode').value==='auto'){
       if(cameraProbe.length<24)return;
@@ -501,7 +515,7 @@ async function startAligned(mode){
     }else beginCapture('train');
 
 }
-function stopCamera(){clearTimeout(cameraPreviewTimer);cameraPreviewTimer=null;zoomQueue=null;document.body.classList.remove('camera-preview');$('camera-settings').hidden=true;resetReturnGuide();lastHeadFeature=null;lastEyeFeature=null;returnRelease=false;positionSession=null;headSelector.reset();$('positions-dialog').close();generation++;ready=false;inFlight=false;lastVideo=-1;lastSample=0;lastReceived=0;lastFrame=0;sessionSetup=null;clearTimeout(resizeTimer);resizeTimer=null;pointRetry=null;waitingMode=null;worker?.terminate();worker=null;stream?.getTracks().forEach(t=>t.stop());stream=null;$('video').srcObject=null;setCameraPreview(false);$('tracking-info').hidden=true;}
+function stopCamera(){clearTimeout(cameraPreviewTimer);cameraPreviewTimer=null;zoomQueue=null;trackedRegions=null;noFaceSince=null;document.body.classList.remove('camera-preview');$('camera-settings').hidden=true;resetReturnGuide();lastHeadFeature=null;lastEyeFeature=null;returnRelease=false;positionSession=null;headSelector.reset();$('positions-dialog').close();generation++;ready=false;inFlight=false;lastVideo=-1;lastSample=0;lastReceived=0;lastFrame=0;sessionSetup=null;clearTimeout(resizeTimer);resizeTimer=null;pointRetry=null;waitingMode=null;worker?.terminate();worker=null;stream?.getTracks().forEach(t=>t.stop());stream=null;$('video').srcObject=null;setCameraPreview(false);$('tracking-info').hidden=true;}
 function frame(current){
  if(current!==generation)return;
  const now=performance.now();
@@ -588,7 +602,7 @@ async function collect(f,now){
   $('result-copy').textContent+=comparisonText+(!validation.passed&&model.poseCorrection?' Try eye-only repair to compare a new five-point map without head-motion correction.':'');
   resultReport=$('result-copy').textContent;
   $('result-copy').textContent=Number.isFinite(validation.meanPixels)?`Average ${validation.meanPixels} px · 90% within ${validation.p90Pixels} px`:'Gaze could not be measured.';
-  const sides=validation.horizontalSummary;$('result-sides').textContent=sides?`Left / right Â· average per-target 90% error: ${sides.left.p90Pixels??'unavailable'} / ${sides.right.p90Pixels??'unavailable'} px Â· usable ${sides.left.usable}% / ${sides.right.usable}%.`:'';
+  const sides=validation.horizontalSummary;$('result-sides').textContent=sides?`Left / right · average per-target 90% error: ${sides.left.p90Pixels??'unavailable'} / ${sides.right.p90Pixels??'unavailable'} px · usable ${sides.left.usable}% / ${sides.right.usable}%.`:'';
   $('result-details').replaceChildren(...validation.perTarget.map((p,i)=>{
    const li=document.createElement('li'),reasons=Object.entries(p.rejected).map(([k,n])=>`${n} ${REJECTION[k]||k}`).join(', '),loss=Object.entries(p.trackingLoss).map(([k,n])=>`${n} ${(QUALITY[k]||k).replace(/[.]+$/,'')}`).join(', '),head=Object.entries(p.headRejections||{}).map(([k,n])=>`${n} ${HEAD_REASON[k]||k}`).join(', ');
    li.textContent=`Check ${i+1}: ${Number.isFinite(p.p90Pixels)?p.p90Pixels+' px':'unavailable'} (90% mapping error), ${Math.round(p.validFraction*100)}% usable. ${Number.isFinite(p.jitterPixels)?`Scatter: ${p.jitterPixels} px. `:''}${Number.isFinite(p.offsetX)&&Number.isFinite(p.offsetY)?`Median: ${Math.abs(p.offsetX)} px ${p.offsetX<0?'left':'right'}, ${Math.abs(p.offsetY)} px ${p.offsetY<0?'up':'down'}. `:''}${reasons?`Rejected: ${reasons}. `:''}${head?`Head limits exceeded: ${head}. `:''}${Number.isFinite(p.headCorrectionP90Pixels)?`Head correction changed the estimate by up to ${p.headCorrectionP90Pixels} px for 90% of estimated frames (contribution, not error). `:''}${loss?`Camera: ${loss}.`:''}`;return li;
@@ -672,7 +686,8 @@ function sample(f,now,head=f){
  if(!view.usable){
   selectionDwell(null,false,view,now);$('progress').value=dwell.progress;desktop?.heartbeat(false);
   if(active||stage==='preview'){
-   report(view.recovering?'Tracking settling…':`Selection paused · ${REJECTION[prediction.reason]||lastQuality}`);
+   const moved=prediction.reason==='head-position'&&prediction.headReasons?.length?` (${prediction.headReasons.map(k=>HEAD_REASON[k]||k).join(', ')})`:'';
+   report(view.recovering?'Tracking settling…':`Selection paused · ${REJECTION[prediction.reason]||lastQuality}${moved}`);
   }
   return;
  }
@@ -779,7 +794,7 @@ function recordTracking(prediction,view,now){
 }
 function trackingReport(){
  const stamp=JSON.stringify(model);let hash=2166136261;for(let i=0;i<stamp.length;i++)hash=Math.imul(hash^stamp.charCodeAt(i),16777619);
- return {version:'0.4.11',filter:{movementConfirmationMs:120,maximumInTargetPauseMs:300,medianWindowMs:150,selectionHoldMs:600,intentWindowMs:240},headEstimate,activePositionId:positionId,savedHeadPositions:headPositions.length,mapId:(hash>>>0).toString(16),camera:cameraStats,viewport:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},
+ return {version:'0.4.17',filter:{movementConfirmationMs:120,maximumInTargetPauseMs:300,medianWindowMs:150,selectionHoldMs:600,intentWindowMs:240},headEstimate,activePositionId:positionId,savedHeadPositions:headPositions.length,mapId:(hash>>>0).toString(16),camera:cameraStats,viewport:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},
   note:'Local session diagnostics. Movement between frames includes intentional eye movement; these are not target accuracy results. These are pointer stability measurements, not identified microsaccades or proof of gaze accuracy. No images, typed text, profile name, or raw eye features included.',
   runs:Object.fromEntries([...trackingRuns].map(([mode,rows])=>{
    const r=rows.filter(x=>performance.now()-x.at<=120000),rejected={};for(const x of r)if(!x.usable){const k=x.recovering?'recovering':x.reason;rejected[k]=(rejected[k]||0)+1;}
@@ -1076,7 +1091,7 @@ $('position-back').onclick=cancelPositions;
 $('positions-dialog').addEventListener('cancel',e=>{e.preventDefault();cancelPositions();});
 $('test-result').onclick=()=>run(()=>activate(true));$('test-saved').onclick=()=>startCamera('test');
 $('copy-report').onclick=async()=>{
- const content=['Screen control 0.4.16',$('result-title').textContent,resultReport||$('result-copy').textContent,$('result-sides').textContent,...[...$('result-details').children].map(n=>n.textContent)].join('\n\n');
+ const content=['Screen control 0.4.17',$('result-title').textContent,resultReport||$('result-copy').textContent,$('result-sides').textContent,...[...$('result-details').children].map(n=>n.textContent)].join('\n\n');
  try{await navigator.clipboard.writeText(content);$('copy-report-status').textContent='Report copied. It contains results only, without images or raw eye samples.';}
  catch{$('copy-report-status').textContent='The browser could not copy the report. You can select and copy the results above.';}
 };

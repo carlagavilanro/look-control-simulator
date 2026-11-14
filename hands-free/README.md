@@ -1,6 +1,6 @@
 # Hands Free
 
-Current Windows companion: **0.4.16**.
+Current Windows companion: **0.4.17**.
 
 Hands Free combines local camera-based eye control, a Windows desktop companion,
 and separate ESP32 infrared receiver/transmitter firmware. The complete source,
@@ -21,9 +21,10 @@ setup`; later starts reuse it. The companion loads its interface from the siblin
 `website/public` folder.
 It processes camera frames locally. It supports:
 
-- Normal **Face + eyes** tracking and a separate **Eyes close-up** detector.
-  Close-up mode needs both eyes, eyelids and eye corners in the selected crops;
-  a whole face is not needed. Each mode has its own calibration and accuracy check.
+- Normal **Face + eyes** tracking and a separate **Eyes close-up** tracker for
+  zoomed-in views. Close-up mode finds both eyes by itself, follows them, and
+  finds them again after a movement; a whole face is not needed and nothing has
+  to be clicked. Each mode has its own calibration and accuracy check.
 - Camera selection, explicit 4K/1080p/720p capture, supported zoom and frame crop,
   and direct wide-angle/telephoto switching for the EMEET C60E 4K Dual.
 - Saved calibration and measured head-position maps in Face + eyes mode,
@@ -34,7 +35,9 @@ It processes camera frames locally. It supports:
   testing, and a reading mode. Selection uses a 0.6-second dwell with release.
 
 Eye-position accuracy must be checked with the actual user and camera. Synthetic
-tests and image-model tests do not establish accuracy for a person. Face-angle
+tests and image-model tests do not establish accuracy for a person. The close-up
+tracker tests run the bundled iris model on a drawn eye scene; they cover
+framing, loss and recovery only. Face-angle
 guidance is unavailable in Eyes close-up mode. Unsupported or lost tracking pauses
 input. Escape pauses the companion. Saved calibration is kept in the Windows user
 profile, outside this repository; video and eye images are not saved or uploaded.

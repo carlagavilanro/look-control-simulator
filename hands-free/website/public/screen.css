@@ -138,3 +138,12 @@ body.desktop.typing-docked,body.desktop.active.typing-docked:not(.viewing){backg
 @media(min-width:601px) and (max-width:700px){#typing-dock .compose-actions{grid-template-columns:repeat(6,minmax(0,1fr))}#typing-dock .compose-actions:has(#draft-enter:not([hidden])){grid-template-columns:repeat(7,minmax(0,1fr))}}
 #camera.eye-setup{pointer-events:auto}#camera.eye-setup #eye-regions{cursor:crosshair;pointer-events:auto}#eye-crop-setup .actions{gap:6px}#eye-crop-setup{margin:8px 0;padding:8px;border:1px solid #c9b8cf;border-radius:8px}#eye-crop-setup p{font-size:12px}
 .eyes-tracking #head-status,.eyes-tracking #realign-controls,.eyes-tracking #return-saved,.eyes-tracking #positions-saved,.eyes-tracking #positions-count{display:none!important}
+
+/* Dark calibration screen: a light screen is the largest reflection in a pair
+   of glasses. Applies only while a calibration or check dot is showing. */
+body.dim-capture #workspace.calibrating:has(#cal-dot:not([hidden])){background:#0e0a12}
+body.dim-capture #workspace.calibrating:has(#cal-dot:not([hidden])) .statusbar,body.dim-capture #workspace.calibrating:has(#cal-dot:not([hidden])) .controlbar{background:#1b1422;color:#eadff0;border-color:#3a2c44}
+body.dim-capture #workspace.calibrating:has(#cal-dot:not([hidden])) #hint,body.dim-capture #workspace.calibrating:has(#cal-dot:not([hidden])) #status,body.dim-capture #workspace.calibrating:has(#cal-dot:not([hidden])) #mode-label{color:#eadff0}
+#picture-controls label{display:block;margin:.35rem 0}
+label.check{display:flex;gap:.5rem;align-items:center}
+label.check input{width:auto}

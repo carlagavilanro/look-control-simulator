@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {EyeCropTracker,EYE_BOX_PER_DISTANCE,eyeCropMeasurement} from '../public/screen-eye-crop.mjs';
-import {twoEyes,eyeScene,sceneCapture} from './support/synthetic-eyes.mjs';
+import {twoEyes,eyeScene,sceneCapture,sceneReader} from './support/synthetic-eyes.mjs';
 import {irisModel} from './support/iris-model.mjs';
 
 const W=1920,H=1080,infer=await irisModel();
@@ -101,4 +101,22 @@ test('gaze readings rise steadily from left to right and mirror around the centr
  // A symmetric scene must read symmetrically: no built-in pull to one side.
  assert.ok(Math.abs(h[2]-.5)<.02,'centre '+h[2]);
  assert.ok(Math.abs(h[0]+h[4]-1)<.03&&Math.abs(h[1]+h[3]-1)<.03,'left and right mirror: '+h);
+});
+
+test('each close-up frame also carries the iris reading from camera pixels and how the eyes are lit',options,async()=>{
+ const read=sceneReader({noise:4,blur:1}),at=dx=>twoEyes({width:W,height:H,distance:.2,irisDx:dx,openUp:.16,openLo:.2});
+ const run=async dx=>{const t=new EyeCropTracker(marked(.2),{infer,capture:sceneCapture({samples:2,noise:2,seed:7}),detail:2,read});return (await play(t,12,()=>at(dx))).filter(r=>r.feature).slice(-6);};
+ const left=await run(-.06),right=await run(.06);
+ assert.ok(left.length>=5&&right.length>=5);
+ for(const r of [...left,...right]){
+  assert.ok(r.feature.alt,'second reading present');
+  for(const key of ['h','v','lh','lv','rh','rv'])assert.ok(Number.isFinite(r.feature.alt[key]),key);
+  assert.equal(r.quality.light.length,2);assert.ok(r.quality.light.every(l=>l.white>l.dark&&l.glare<.1));
+ }
+ // Both readings move the same way with the gaze; the camera-pixel one by the
+ // amount the iris really moved relative to the corners the model reports.
+ const shift=key=>mean(right.map(r=>r.feature.alt[key]))-mean(left.map(r=>r.feature.alt[key])),plain=mean(right.map(r=>r.feature.h))-mean(left.map(r=>r.feature.h));
+ assert.ok(shift('h')>.03&&plain>.03,`alt ${shift('h')} plain ${plain}`);
+ // Without a reader (as in Node without a canvas) frames simply have one reading.
+ const bare=await play(tracker(marked(.2)),8,()=>at(0));assert.ok(bare.at(-1).feature&&!bare.at(-1).feature.alt);
 });

@@ -1,4 +1,5 @@
 // Direct MediaPipe Iris inference on eye crops. No full-face detector.
+import {IrisDetail,lightSummary} from './screen-iris-detail.mjs';
 export const DEFAULT_EYE_REGIONS=[{x:.3,y:.5,size:.38},{x:.7,y:.5,size:.38}];
 const finite=p=>p&&Number.isFinite(p.x)&&Number.isFinite(p.y);
 const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
@@ -50,7 +51,7 @@ export function eyeCropMeasurement(points,width,height){
  // Only a nearly closed eye is rejected for its opening. A wide-open eye is a
  // valid reading; the upper bound only excludes impossible landmark output.
  if(w<18||!Number.isFinite(h+v+opening)||opening<.12||opening>1||h<.04||h>.96||Math.abs(v)>.35||diameter/w<.09||diameter/w>.65||Math.hypot((mx-c.x)*width,(my-c.y)*height)/w>.09)return null;
- return {h,v,width:w,opening,center:{x:(a.x+b.x)/2,y:(a.y+b.y)/2},a,b,iris:{center:c,ring},outline:[...points.slice(0,9),...points.slice(9,16).reverse()]};
+ return {h,v,width:w,opening,center:{x:(a.x+b.x)/2,y:(a.y+b.y)/2},a,b,iris:{center:c,ring,radius:diameter/2},outline:[...points.slice(0,9),...points.slice(9,16).reverse()]};
 }
 // The two eyes never read exactly alike: the iris sits slightly toward the nose
 // in each, so their horizontal readings differ by a steady, person-specific
@@ -81,6 +82,11 @@ export function eyeFrameFeature(measurements,width,height,agreement=null){
  const dx=(b.center.x-a.center.x)*width/height,dy=b.center.y-a.center.y,scale=Math.hypot(dx,dy);
  if(scale<.03)return null;
  return {h:(a.h+b.h)/2,v:(a.v+b.v)/2,lh:a.h,lv:a.v,rh:b.h,rv:b.v,x:(a.center.x+b.center.x)/2,y:(a.center.y+b.center.y)/2,scale,roll:Math.atan2(dy,dx)};
+}
+// One eye's model output in frame pixels, as the iris-detail reader needs it.
+export function eyeForDetail(m,width,height){
+ const px=p=>({x:p.x*width,y:p.y*height});
+ return {a:px(m.a),b:px(m.b),iris:{...px(m.iris.center),r:m.iris.radius},lower:m.outline.slice(0,9).map(px),upper:m.outline.slice(9).map(px)};
 }
 function irisEvidence(luminance,width,height,points){
  if(!points?.[71])return false;
@@ -153,7 +159,7 @@ export function canvasCapture(createSurface=size=>new OffscreenCanvas(size,size)
 export class EyeCropTracker{
  // infer(input,count) and capture(frame,crops,input) can be supplied by tests;
  // the worker uses the bundled TensorFlow.js model and an offscreen canvas.
- constructor(regions,{infer=null,capture=null,detail=null}={}){this.infer=infer;this.capture=capture;this.agreement=new BinocularAgreement();this.detail=detail||4;this.adaptive=!detail;this.cost=null;this.setRegions(regions);}
+ constructor(regions,{infer=null,capture=null,detail=null,read=null}={}){this.infer=infer;this.capture=capture;this.irisDetail=new IrisDetail(read);this.refining=!!read||typeof OffscreenCanvas!=='undefined';this.agreement=new BinocularAgreement();this.detail=detail||4;this.adaptive=!detail;this.cost=null;this.setRegions(regions);}
  setRegions(regions){
   if(!validEyeRegions(regions))throw Error('Mark both eyes in camera preview.');
   this.hint=regions.map(r=>({...r})).sort((a,b)=>a.x-b.x);this.revision=(this.revision||0)+1;this.frameSize=null;
@@ -179,7 +185,7 @@ export class EyeCropTracker{
   this.frameSize={width,height};
   this.eyes=this.hint.map(r=>({x:r.x*width,y:r.y*height}));
   this.size=EYE_BOX_PER_DISTANCE*Math.hypot(this.eyes[1].x-this.eyes[0].x,this.eyes[1].y-this.eyes[0].y);
-  this.locked=false;this.streak=0;this.lostSince=null;this.unusableSince=null;this.searchAt=-Infinity;this.searchWait=SEARCH_EVERY_MS;this.agreement.reset();
+  this.locked=false;this.streak=0;this.lostSince=null;this.unusableSince=null;this.searchAt=-Infinity;this.searchWait=SEARCH_EVERY_MS;this.agreement.reset();this.irisDetail.reset();
  }
  async run(frame,crops){
   // Every frame reads the same small number of boxes: reuse those buffers.
@@ -245,6 +251,13 @@ export class EyeCropTracker{
   const feature=clear&&this.locked?eyeFrameFeature(measurements,width,height,this.agreement):null;
   if(feature){
    this.unusableSince=null;
+   // Second reading of the same frame: the iris located in the camera's own
+   // pixels. Calibration decides which reading maps this person's gaze better.
+   if(this.refining){
+    const [left,right]=[...measurements].sort((a,b)=>a.center.x-b.center.x),detail=this.irisDetail.refine(frame,[left,right].map(m=>eyeForDetail(m,width,height)));
+    quality.light=detail.map(d=>lightSummary(d.light));
+    if(detail.every(d=>Number.isFinite(d.h)))feature.alt={h:(detail[0].h+detail[1].h)/2,v:(detail[0].v+detail[1].v)/2,lh:detail[0].h,lv:detail[0].v,rh:detail[1].h,rv:detail[1].v};
+   }
    return {feature,head:{x:feature.x,y:feature.y,scale:feature.scale,roll:feature.roll},eyes:{outlines:measurements.map(m=>m.outline),irises:measurements.map(m=>m.iris)},quality:{...quality,reason:'usable'},regions:this.regions};
   }
   this.unusableSince??=now;

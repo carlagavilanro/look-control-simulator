@@ -66,7 +66,7 @@ async function start(){
  protocol.handle('handsfree',request=>{
   const u=new URL(request.url);let name;try{name=decodeURIComponent(u.pathname);}catch{return new Response('Invalid path',{status:400});}
   if(u.host!=='control'||name.includes('..')||name.includes('\\'))return new Response('Not found',{status:404});
-  const allowed=/^\/(screen(?:-app|-gaze|-worker|-eye-overlay|-positions|-targets|-camera|-typing|-eye-crop)?\.(?:html|css|mjs)|vendor\/[a-zA-Z0-9_.-]+)$/;
+  const allowed=/^\/(screen(?:-app|-gaze|-worker|-eye-overlay|-positions|-targets|-camera|-typing|-eye-crop|-iris-detail|-face-detail)?\.(?:html|css|mjs)|vendor\/[a-zA-Z0-9_.-]+)$/;
   if(!allowed.test(name))return new Response('Not found',{status:404});
   return net.fetch(pathToFileURL(path.join(assets,name.slice(1))).href);
  });

@@ -16,7 +16,7 @@ version = json.loads((root / 'desktop-control/package.json').read_text(encoding=
 manifest = build / 'resources/app/package.json'
 if not manifest.exists() or json.loads(manifest.read_text(encoding='utf-8'))['version'] != version:
     raise SystemExit('Build this version first: cd desktop-control && npm ci && npm run package')
-for name in ['screen-app.mjs', 'screen-camera.mjs', 'screen-eye-crop.mjs', 'screen-typing.mjs']:
+for name in ['screen-app.mjs', 'screen-camera.mjs', 'screen-eye-crop.mjs', 'screen-iris-detail.mjs', 'screen-face-detail.mjs', 'screen-typing.mjs']:
     if (build / 'resources/app/public' / name).read_bytes() != (root / 'website/public' / name).read_bytes():
         raise SystemExit(f'Rebuild before packaging: {name} is out of date')
 destination.parent.mkdir(parents=True, exist_ok=True)

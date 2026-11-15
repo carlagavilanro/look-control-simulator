@@ -1,4 +1,45 @@
-CURRENT VERSION 0.4.17 - STEADIER EYES CLOSE-UP, FOUND AUTOMATICALLY
+CURRENT VERSION 0.4.18 - FACE + EYES AT A DISTANCE, GLASSES, CAMERA PICTURE
+Face + eyes now works far from the camera. The tracker used to be handed the
+whole picture, so a distant face was a small part of it and, further away, was
+not found at all. It is now handed a square around your face at the camera's
+own resolution, and it looks through the picture in tiles when the face is
+small. You do not need to zoom in until the face is cut: keep the whole face in
+view (telephoto lens, 4K for the most eye detail) and use Face + eyes. That mode
+can see head turns; Eyes close-up cannot.
+
+Eyes close-up: keep your head still and move only your eyes. This mode sees the
+eyes but not which way the head is turned, so a nod or a turn of a few degrees
+moves the pointer by hundreds of pixels. Use it when the face cannot be in view
+and the head is supported; otherwise use Face + eyes.
+
+Iris read from camera pixels. Both eye models look at a small copy of each eye.
+Every frame now also carries a second reading: the edge between the iris and the
+white of the eye, found in the camera's own pixels. Calibration fits both
+readings and keeps the one that predicts held-out screen points better, so the
+second reading is only used where it helps. The result screen and the copied
+report say which one was kept.
+
+Glasses and reflections. The share of each iris covered by a reflection is
+measured. With one iris covered, that eye is filled in from the other eye
+instead of stopping or jumping; with both covered the app says so. Camera
+preview shows the eye brightness and warns about a reflection. More setup
+options has "Dark calibration screen", because a light screen is the largest
+reflection in a pair of glasses.
+
+Camera picture. Set camera / preview now runs the tracker in both modes and has
+a Picture section: "Set brightness for my eyes" adjusts the camera from how the
+eyes themselves are lit, and sliders appear for each adjustment the camera
+reports (exposure, brightness, contrast, sharpness, colour strength, white
+balance, focus). The chosen values are saved with the camera setup. Hue is not
+available to the app and does not affect tracking. If no sliders appear, the
+camera's driver does not report them: use Windows camera settings or the EMEET
+app.
+
+Not yet measured with a person: these changes were checked with drawn eyes, a
+test photograph and a simulated camera. Please run the accuracy check in both
+modes, with and without glasses, and copy the report.
+
+PREVIOUS VERSION 0.4.17 - STEADIER EYES CLOSE-UP, FOUND AUTOMATICALLY
 Eyes close-up no longer needs the eyes marked by hand. In Set camera / preview
 both eyes are found and outlined by themselves. Find eyes automatically repeats
 the search; marking by hand remains as a fallback. During use the eyes are found

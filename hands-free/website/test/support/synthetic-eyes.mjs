@@ -67,3 +67,41 @@ export function sceneSampler({samples=3,noise=0,seed=1}={}){
 }
 // capture(frame,crops,input) for EyeCropTracker, reading a procedural scene.
 export function sceneCapture(options){const sample=sceneSampler(options);return (scene,crops,input)=>crops.forEach((crop,i)=>sample(scene,crop,input,i*12288,crop.flip));}
+// Luminance of part of a procedural scene at camera resolution, as a camera
+// would deliver it: each pixel averages the scene over its own area, then lens
+// blur and sensor noise are added. Pixel i covers [x+i, x+i+1) of the frame.
+// overlay(color,x,y) can paint over the scene, for example a reflection.
+export function sceneLuminance(scene,rect,{samples=3,blur=1,noise=0,seed=1,overlay=null}={}){
+ const {x:x0,y:y0,width:w,height:h}=rect,sharp=new Float32Array(w*h);
+ for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+  let sum=0;
+  for(let sy=0;sy<samples;sy++)for(let sx=0;sx<samples;sx++){const px=x0+x+(sx+.5)/samples,py=y0+y+(sy+.5)/samples;let c=scene.colorAt(px,py);if(overlay)c=overlay(c,px,py);sum+=.299*c[0]+.587*c[1]+.114*c[2];}
+  sharp[y*w+x]=sum/(samples*samples);
+ }
+ let out=sharp;
+ if(blur>0){
+  const reach=Math.ceil(3*blur),kernel=[];let total=0;
+  for(let i=-reach;i<=reach;i++){const v=Math.exp(-.5*i*i/(blur*blur));kernel.push(v);total+=v;}
+  const rows=new Float32Array(w*h);out=new Float32Array(w*h);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){let s=0;for(let i=-reach;i<=reach;i++)s+=kernel[i+reach]*sharp[y*w+Math.max(0,Math.min(w-1,x+i))];rows[y*w+x]=s/total;}
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){let s=0;for(let i=-reach;i<=reach;i++)s+=kernel[i+reach]*rows[Math.max(0,Math.min(h-1,y+i))*w+x];out[y*w+x]=s/total;}
+ }
+ if(noise){const random=noiseSource(seed);for(let i=0;i<out.length;i++)out[i]=Math.max(0,Math.min(255,out[i]+noise*1.732*(random()+random()+random()+random())));}
+ return out;
+}
+// read(frame,patch) for the iris-detail reader, taking camera pixels from a scene.
+export function sceneReader(options={}){
+ let seed=options.seed||1;
+ return (scene,patch)=>{
+  const native=sceneLuminance(scene,{x:patch.x,y:patch.y,width:patch.width,height:patch.height},{...options,seed:seed++});
+  if(patch.outWidth===patch.width&&patch.outHeight===patch.height)return native;
+  const out=new Float32Array(patch.outWidth*patch.outHeight);
+  for(let y=0;y<patch.outHeight;y++)for(let x=0;x<patch.outWidth;x++)out[y*patch.outWidth+x]=native[Math.min(patch.height-1,Math.floor((y+.5)/patch.scale))*patch.width+Math.min(patch.width-1,Math.floor((x+.5)/patch.scale))];
+  return out;
+ };
+}
+// The two lid lines of a drawn eye, nine points each, as an eye model reports them.
+export function lidLines(eye){
+ const e=eyeDefaults(eye),line=(sign,open,power)=>Array.from({length:9},(_,k)=>{const t=k/8,shape=Math.max(0,4*t*(1-t));return {x:e.cx+(t-.5)*e.w,y:e.cy+sign*open*e.w*shape**power};});
+ return {upper:line(-1,e.openUp,.8),lower:line(1,e.openLo,.9)};
+}

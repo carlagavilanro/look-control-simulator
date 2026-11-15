@@ -1,6 +1,6 @@
 # Hands Free
 
-Current Windows companion: **0.4.17**.
+Current Windows companion: **0.4.18**.
 
 Hands Free combines local camera-based eye control, a Windows desktop companion,
 and separate ESP32 infrared receiver/transmitter firmware. The complete source,
@@ -21,6 +21,12 @@ setup`; later starts reuse it. The companion loads its interface from the siblin
 `website/public` folder.
 It processes camera frames locally. It supports:
 
+- **Face + eyes** follows the face in a square of camera pixels, so it works at
+  a distance without zooming in until the face is cut; each frame also carries
+  an iris reading taken from the camera's own pixels, and calibration keeps
+  whichever reading predicts held-out screen points better.
+- Reflections over an iris (glasses) are measured; one covered eye is filled in
+  from the other. Camera preview can set the camera's brightness for the eyes.
 - Normal **Face + eyes** tracking and a separate **Eyes close-up** tracker for
   zoomed-in views. Close-up mode finds both eyes by itself, follows them, and
   finds them again after a movement; a whole face is not needed and nothing has

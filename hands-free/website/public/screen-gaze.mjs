@@ -40,7 +40,10 @@ export function screenHeadFeature(p,aspect=4/3){
  const head={x:p[1].x,y:p[1].y,scale:Math.sqrt(w),roll:Math.atan2(dy,dx),yaw:((nose.x-left.x)*dx+(nose.y-left.y)*dy)/w,pitch:(-(nose.x-left.x)*dy+(nose.y-left.y)*dx)/w};
  return finite(Object.values(head))?head:null;
 }
-export function screenFeature(p, aspect=4/3, imageHeight=720, diagnostics=null, agreement=null) {
+// trust[i]===false marks an eye whose iris is covered by a reflection. Its
+// landmarks are then not read at all: that eye is filled in from the other eye
+// and this person's usual difference between the two, once that is known.
+export function screenFeature(p, aspect=4/3, imageHeight=720, diagnostics=null, agreement=null, trust=[true,true]) {
   const reject=reason=>{if(diagnostics)diagnostics.reason=reason;return null;};
   if(diagnostics){diagnostics.reason='usable';diagnostics.eyePixels=[];diagnostics.openings=[];}
   if (!p || p.length<478 || !finite([aspect,imageHeight]) || aspect<=0 || imageHeight<=0) return reject('no-face');
@@ -66,11 +69,21 @@ export function screenFeature(p, aspect=4/3, imageHeight=720, diagnostics=null, 
     if(x<=.04||x>=.96)return reject('eye-edge');
     return {x,y};
   }
-  const a=eye(33,133,468,159,145),b=eye(362,263,473,386,374);
-  if(!a||!b)return null;
-  // With an agreement tracker, compare against this person's usual difference
-  // between the two eyes rather than against zero.
-  if(agreement?!agreement.check(a.x-b.x,a.y-b.y):Math.abs(a.x-b.x)>.20||Math.abs(a.y-b.y)>.12)return reject('disagreement');
+  let a=trust[0]===false?null:eye(33,133,468,159,145),b=trust[1]===false?null:eye(362,263,473,386,374);
+  const hidden=(trust[0]===false)+(trust[1]===false);
+  if(hidden===1){
+   const usual=agreement&&agreement.count>=agreement.settle?agreement:null,seen=a||b;
+   if(!seen)return null;
+   if(!usual)return reject('glare');
+   if(a)b={x:a.x-usual.dh,y:a.y-usual.dv};else a={x:b.x+usual.dh,y:b.y+usual.dv};
+   if(diagnostics)diagnostics.oneEye=trust[0]===false?'right':'left';
+  }else{
+   if(hidden===2)return reject('glare');
+   if(!a||!b)return null;
+   // With an agreement tracker, compare against this person's usual difference
+   // between the two eyes rather than against zero.
+   if(agreement?!agreement.check(a.x-b.x,a.y-b.y):Math.abs(a.x-b.x)>.20||Math.abs(a.y-b.y)>.12)return reject('disagreement');
+  }
   const head=screenHeadFeature(p,aspect);if(!head)return reject('landmarks');
   const f={h:(a.x+b.x)/2,v:(a.y+b.y)/2,lh:a.x,lv:a.y,rh:b.x,rv:b.y,...head};
   return finite(Object.values(f))?f:null;
@@ -317,7 +330,42 @@ function summarizeForBank(samples){
  const fields=[...core,...eyes.filter(k=>samples.every(f=>Number.isFinite(f[k]))),...pose.filter(k=>samples.every(f=>Number.isFinite(f[k])))];
  return Object.fromEntries(fields.map(k=>[k,median(samples.map(f=>f[k]))]));
 }
-export function fitCalibration(groups){
+// A frame can carry a second reading of the same eyes: the iris located in the
+// camera's own pixels instead of the eye model's small copy (feature.alt).
+// Which reading is steadier depends on the person, the camera and the light,
+// so calibration fits both and keeps the one that predicts held-out screen
+// locations better. The saved map remembers which reading it was fitted to.
+const DETAIL_KEYS=['h','v','lh','lv','rh','rv'];
+export function detailFeature(f){
+ if(!f?.alt||!DETAIL_KEYS.every(k=>Number.isFinite(f.alt[k])))return null;
+ const {alt,...rest}=f;return {...rest,...alt};
+}
+// The reading a given map expects from a frame, or null when the frame lacks it.
+export function signalFeature(f,m){
+ if(!f)return null;
+ if(m?.signal==='detail')return detailFeature(f);
+ if(f.alt){const {alt,...rest}=f;return rest;}
+ return f;
+}
+export const DETAIL_ADVANTAGE=.93; // Camera-pixel reading must be at least 7% better.
+export function fitCalibration(groups,{signal=null}={}){
+ if(signal==='plain')return fitSignal(groups);
+ // Only frames with both readings can be compared like for like.
+ const complete=groups.length>0&&groups.every(g=>{const valid=g.samples.filter(validFeature);return valid.length>=16&&valid.filter(f=>detailFeature(f)).length>=valid.length*.9;});
+ const detailed=()=>{const m=fitSignal(groups.map(g=>({...g,samples:g.samples.map(detailFeature).filter(Boolean)})));m.signal='detail';return m;};
+ if(signal==='detail'){
+  if(!complete)throw calibrationError('The iris edge was not clear enough at every point. Check the light and glasses reflections, then retry.',{reason:'samples',pointIndices:[]});
+  return detailed();
+ }
+ let plain=null,detail=null,plainError=null;
+ try{plain=fitSignal(groups);}catch(e){plainError=e;}
+ if(complete)try{detail=detailed();}catch{/* The model reading stands alone. */}
+ if(!plain&&!detail)throw plainError;
+ const chosen=detail&&(!plain||detail.crossValidation<=plain.crossValidation*DETAIL_ADVANTAGE)?detail:plain;
+ if(plain&&detail)chosen.signalComparison={plain:plain.crossValidation,detail:detail.crossValidation};
+ return chosen;
+}
+function fitSignal(groups){
   if(groups.length<13||new Set(groups.map(targetKey)).size<13)throw Error('Complete all calibration points, covering at least thirteen different locations.');
   const rows=groups.map((g,i)=>{try{return {target:g.target,feature:summarize(g.samples),samples:g.samples.filter(validFeature)};}catch(e){throw calibrationError(e.message,{reason:'samples',pointIndices:[i]});}}),candidates=[];
   try{fit(rows,1,.5,.02);}catch(e){throw calibrationError(e.message,{reason:'range',pointIndices:[1,5,3,7]});}
@@ -374,7 +422,7 @@ export function validModel(m){
   const r=m?.refinement,refinementValid=!r||(Array.isArray(r.centers)&&r.centers.length>=8&&r.centers.length<=25&&r.centers.every(c=>Array.isArray(c)&&c.length===2&&finite(c)&&c.every(v=>Math.abs(v)<5))&&Number.isFinite(r.radius)&&r.radius>=.2&&r.radius<=1&&Number.isFinite(r.lambda)&&r.lambda>=.01&&Array.isArray(r.weights)&&r.weights.length===2&&r.weights.every(w=>Array.isArray(w)&&w.length===r.centers.length&&finite(w)&&w.every(v=>Math.abs(v)<=2)));
   const offsetValid=!m?.offset||(Array.isArray(m.offset)&&m.offset.length===2&&finite(m.offset)&&m.offset.every(v=>Math.abs(v)<=.3));
   const anchorsValid=m?.anchors===undefined||(Array.isArray(m.anchors)&&m.anchors.length>=5&&m.anchors.length<=27&&m.anchors.every(g=>validFeature(g?.feature)&&Array.isArray(g.target)&&g.target.length===2&&finite(g.target)&&g.target.every(v=>v>=0&&v<=1)));
-  return [2,3,4].includes(m?.version)&&correctionValid&&richValid&&alignmentValid&&refinementValid&&offsetValid&&anchorsValid&&[1,2].includes(m.degree)&&[.25,.5,.75].includes(m.leftWeight)&&typeof m.binocular==='boolean'&&
+  return [2,3,4].includes(m?.version)&&(m.signal===undefined||m.signal==='detail')&&correctionValid&&richValid&&alignmentValid&&refinementValid&&offsetValid&&anchorsValid&&[1,2].includes(m.degree)&&[.25,.5,.75].includes(m.leftWeight)&&typeof m.binocular==='boolean'&&
     Array.isArray(m.center)&&m.center.length===2&&finite(m.center)&&Array.isArray(m.spread)&&m.spread.length===2&&finite(m.spread)&&m.spread.every(x=>x>0)&&
     Array.isArray(m.weights)&&m.weights.length===2&&m.weights.every(r=>Array.isArray(r)&&r.length===(m.version===4?m.featureIndices.length+1:m.degree===1?3:6)&&finite(r))&&
     !!m.head&&core.slice(2).every(k=>Number.isFinite(m.head[k]))&&m.head.scale>0&&pose.every(k=>m.head[k]===undefined||Number.isFinite(m.head[k]));
@@ -490,6 +538,8 @@ function fitRepair(groups,model,{eyeOnly=false,refine=false}={}){
  const fitted=selected.factory(rows);
  const result={...fitted,head,alignment:{...(fitted.alignment||{weights:[[0,1,0],[0,0,1]],sourceHead:head,affine:false}),rebuilt:selected.rebuilt,estimatedError:selected.score},
   repairComparison:{existingError:existing?.score??null,eyeOnlyError:repair?.score??null,rebuilt:selected.rebuilt,eyeOnlyRequested:eyeOnly,refined:refine,regional:!!selected.regional,unchanged:!!selected.unchanged,selectedError:selected.score,anchorCount:rows.length},trainingRevision:1};
+ // A repaired map reads the same signal as the map it repairs.
+ if(model.signal)result.signal=model.signal;else delete result.signal;
  if(selected.rebuilt){result.trainingLocations=rows.length;result.centerRepeatCount=1;result.centerDrift=0;result.centerDriftX=0;result.centerDriftY=0;}
  result.anchors=referenceAnchors(rows);
  if(!validModel(result))throw Error('Alignment could not be saved. Use New calibration.');

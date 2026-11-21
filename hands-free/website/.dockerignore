@@ -1,6 +1,8 @@
 *
 !Dockerfile
 !cloud-server.mjs
+!hub.mjs
+!fan-signals.json
 !public/
 !public/**
 

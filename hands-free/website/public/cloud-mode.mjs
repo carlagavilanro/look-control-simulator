@@ -9,6 +9,11 @@ details.replaceChildren();
 const message=document.createElement('p');message.className='setup-hint';message.textContent='Link the receiver and transmitter boards, record remote buttons and name them in Setup.';
 const open=document.createElement('a');open.className='secondary-button';open.href='/setup';open.textContent='Open setup →';open.style.display='inline-block';
 details.append(message,open);
+// The two things this page is for, side by side: use what is set up, or set up something new.
+const choices=$('screen-launch').parentElement;choices.className='device-choices';
+const use=document.createElement('button');use.type='button';use.className='primary-button';use.textContent='Use saved devices';use.setAttribute('aria-pressed','true');use.onclick=()=>$('controls').scrollIntoView({block:'center',behavior:'smooth'});
+const add=document.createElement('a');add.className='secondary-button';add.href='/setup';add.textContent='Set up a device';
+choices.prepend(use,add);
 const rail=document.createElement('a');rail.href='/setup';rail.setAttribute('aria-label','Setup');rail.innerHTML='<svg><use href="#i-mode"/></svg><span>Setup</span>';
 $('profile-rail').before(rail);
 document.querySelector('.local-badge').lastChild.textContent=' Camera stays on your device';

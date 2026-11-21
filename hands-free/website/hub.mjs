@@ -26,6 +26,13 @@ export const ICONS=Object.freeze(['power','minus','plus','up','down','left','rig
 const DEVICE_KINDS=['receiver','transmitter','app'];
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const id=prefix=>prefix+'_'+randomBytes(6).toString('hex');
+// A picture for a button from its name, when none was chosen.
+export function iconFor(label){
+ const text=String(label||'').toLowerCase();
+ for(const [pattern,icon]of [[/mute|silen|quiet/,'silence'],[/timer|sleep/,'timer'],[/turn|swing|oscillat|rotat/,'turn'],[/mode/,'mode'],[/input|source/,'input'],[/\bok\b|select|enter/,'ok'],[/\bon\b|\boff\b|power/,'power'],[/\bleft\b|back/,'left'],[/\bright\b/,'right'],
+  [/volume up|speed up|warmer|brighter|faster|louder|more|\+/,'plus'],[/volume down|speed down|cooler|dimmer|slower|less/,'minus'],[/\bup\b/,'up'],[/\bdown\b/,'down'],[/light|lamp/,'light'],[/heat/,'heat'],[/fan/,'fan']])if(pattern.test(text))return icon;
+ return 'dot';
+}
 const clean=(value,max)=>typeof value==='string'?value.replace(/[\u0000-\u001f\u007f<>]/g,' ').replace(/\s+/g,' ').trim().slice(0,max):'';
 
 // The same checks the boards make (SignalStore.h / CaptureStore.h): 3 to 2048 positive whole
@@ -186,7 +193,7 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
   if(!Number.isInteger(carrier)||carrier<20||carrier>60)return {status:400,body:{message:'The carrier must be 20 to 60 kHz.'}};
   const existing=replace?a.buttons.find(b=>b.id===replace):a.buttons.find(b=>b.label.toLowerCase()===chosen.toLowerCase());
   if(!existing&&a.buttons.length>=LIMITS.buttons)return {status:409,body:{message:'Remove a button before adding another.'}};
-  const button={id:existing?.id||id('b'),label:chosen,icon:ICONS.includes(icon)?icon:existing?.icon||'dot',carrier_khz:carrier,raw_us:recording.raw_us,addedAt:now(),fingerprint:recording.fingerprint,
+  const button={id:existing?.id||id('b'),label:chosen,icon:ICONS.includes(icon)?icon:existing?.icon||iconFor(chosen),carrier_khz:carrier,raw_us:recording.raw_us,addedAt:now(),fingerprint:recording.fingerprint,
    origin:[recording.protocol&&recording.protocol!=='UNKNOWN'?recording.protocol:'',recording.bits?recording.bits+' bits':'',recording.code].filter(Boolean).join(' · ')};
   if(existing)a.buttons[a.buttons.indexOf(existing)]=button;else a.buttons.push(button);
   data.recordings=data.recordings.filter(r=>r.id!==recording.id);
@@ -211,7 +218,7 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
   if(!chosen)return {status:400,body:{message:'Choose or type a name for the button first.'}};
   const receiver=data.devices.find(d=>d.kind==='receiver');
   if(!receiver)return {status:409,body:{message:'Link the receiver board first.'}};
-  learning={applianceId,label:chosen,icon:ICONS.includes(icon)?icon:'dot',replace:typeof replace==='string'?replace:null,startedAt:now(),until:now()+t.learn};learned=null;
+  learning={applianceId,label:chosen,icon:ICONS.includes(icon)?icon:iconFor(chosen),replace:typeof replace==='string'?replace:null,startedAt:now(),until:now()+t.learn};learned=null;
   return {status:200,body:{message:'Point the remote at the receiver and press the button once.',seconds:Math.round(t.learn/1000)}};
  }
  function stopLearning(){learning=null;return {status:200,body:{message:'Stopped.'}};}

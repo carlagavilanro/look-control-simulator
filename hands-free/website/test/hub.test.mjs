@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {randomBytes} from 'node:crypto';
-import {createHub,validTimings,firstBurst,sameSignal,LIMITS} from '../hub.mjs';
+import {createHub,validTimings,firstBurst,sameSignal,iconFor,LIMITS} from '../hub.mjs';
 import {createCloudServer} from '../cloud-server.mjs';
 
 const seed=JSON.parse(fs.readFileSync(new URL('../fan-signals.json',import.meta.url),'utf8'));
@@ -19,6 +19,9 @@ function press(bits,repeats=3,jitter=0){const out=[];for(let r=0;r<repeats;r++){
 
 test('the site copy of the fan recordings is exactly the transmitter\'s library',()=>{
  assert.deepEqual(seed,JSON.parse(fs.readFileSync(new URL('../../hardware/signals/signals.json',import.meta.url),'utf8')));
+});
+test('a button gets a fitting picture from its name when none is chosen',()=>{
+ for(const [label,icon]of [['On/off','power'],['Power','power'],['Volume up','plus'],['Speed down','minus'],['Mute','silence'],['Timer','timer'],['Channel up','up'],['Input','input'],['OK','ok'],['Left','left'],['Zebra','dot'],['',  'dot']])assert.equal(iconFor(label),icon,label);
 });
 test('timings are held to the limits the boards themselves use',()=>{
  assert.ok(validTimings([500,500,500]));

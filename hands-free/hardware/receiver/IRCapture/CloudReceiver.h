@@ -9,7 +9,8 @@
 // The link task sends saved recordings in order, oldest first, and remembers in flash how far
 // it got. Recordings made while offline are sent when the website is next reachable. For a
 // recording made a moment ago it also says how long ago, so the website can tell a button
-// pressed just now ("Record a button") from older saved ones.
+// pressed just now ("Record a button") from older saved ones. When there is nothing to send it
+// says hello to the website every 20 seconds.
 #define FIRMWARE_NAME "IRCapture-cloud-1"
 #include "CloudLink.h"
 
@@ -19,6 +20,8 @@ RecentCapture recentCaptures[RECENT_CAPTURES] = {};
 volatile uint32_t recentCaptureCount = 0;
 volatile uint32_t lastSignalAt = 0;
 uint32_t sentThrough = 0;   // every saved recording up to this number has been dealt with
+uint32_t lastHelloAt = 0;
+bool saidHello = false;
 
 // Called by the main loop for every signal seen, and with the number of a recording just saved.
 void websiteNoteSignal() { lastSignalAt = millis(); }
@@ -44,7 +47,20 @@ void websiteTask(void*) {
     if (!cloud::linked()) { cloud::link("receiver"); continue; }
     const uint32_t id = sentThrough + 1;
     // Nothing new, or a button is still being held: wait. (A held button repeats its signal.)
-    if (!captureStorageReady || id >= nextCaptureId || millis() - lastSignalAt < 1200) { cloud::wait(250); continue; }
+    if (!captureStorageReady || id >= nextCaptureId || millis() - lastSignalAt < 1200) {
+      // With nothing to send, say hello every 20 seconds: the website then shows the receiver as
+      // online, and a receiver that was removed there finds out.
+      if (!saidHello || millis() - lastHelloAt > 20000) {
+        String answer;
+        const int status = cloud::request("GET", "/api/device/hello", "", answer, 15000);
+        saidHello = true; lastHelloAt = millis();
+        if (status == 200) cloud::accepted();
+        else if (status == 401) cloud::refused();
+        else cloud::trouble(status, "reach the website");
+      }
+      cloud::wait(250);
+      continue;
+    }
 
     String body;
     File file = LittleFS.open(capturePath(id), "r");

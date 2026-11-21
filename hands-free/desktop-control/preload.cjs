@@ -14,5 +14,6 @@ contextBridge.exposeInMainWorld('desktopControl',Object.freeze({
  focusTargets:rebind=>ipcRenderer.invoke('screen:targets',rebind===true),
  activateTarget:(scope,id,rect)=>ipcRenderer.invoke('screen:target',scope,id,rect),
  openSite:(site,query)=>ipcRenderer.invoke('screen:site',site,query),
+ devices:(action,payload)=>ipcRenderer.invoke('screen:devices',action,payload),
  onPause:callback=>ipcRenderer.on('screen:paused',()=>callback()),onToggle:callback=>ipcRenderer.on('screen:toggle',()=>callback())
 }));

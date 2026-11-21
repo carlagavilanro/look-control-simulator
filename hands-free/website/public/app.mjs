@@ -8,9 +8,47 @@ let profiles;try{profiles=new ProfileStore(window.localStorage);}catch{profiles=
 const tvItems=[['tv_power','Power toggle'],['tv_volume_down','Volume down'],['tv_volume_up','Volume up'],['tv_mute','Mute'],['tv_channel_down','Channel down'],['tv_channel_up','Channel up'],['tv_input','Input'],['pause','Pause eye controls'],['switch-device','Switch to fan']];
 let activeDevice='fan',items=fanItems,availableCommands=new Set(fanItems.filter(x=>x[0].startsWith('captured_')).map(x=>x[0]));
 let iconNames=['power','minus','plus','mode','silence','turn','timer','pause','tv'];
-function available(command){return command==='pause'||command==='switch-device'||availableCommands.has(command);}
+// On the website (cloud mode) the devices and their buttons are the ones set up on the site, not
+// the two fixed lists above, and a command goes to the transmitter board through the site.
+const cloud=globalThis.handsFreeCloud===true,kindIcon={fan:'fan',tv:'tv',heater:'heat',light:'light',other:'dot'};
+let appliances=[],confirming=null,hubSignature='';
+function cloudItems(){
+ const device=appliances.find(a=>a.id===activeDevice)||appliances[0];
+ if(!device){items=[['pause','Pause eye controls']];iconNames=['pause'];return;}
+ activeDevice=device.id;
+ // An appliance that asks first (a heater) shows two choices, with "No" in focus.
+ if(confirming){items=[['confirm','Yes, send '+confirming[1]],['cancel','No, go back']];iconNames=['check','pause'];return;}
+ const more=appliances.length>1,next=appliances[(appliances.indexOf(device)+1)%appliances.length];
+ items=[...device.buttons.map(b=>[b.id,b.label]),['pause','Pause eye controls'],...(more?[['switch-device','Next: '+next.name]]:[])];
+ iconNames=[...device.buttons.map(b=>b.icon),'pause',...(more?[kindIcon[next.kind]||'dot']:[])];
+}
+function paintDevices(){
+ const holder=document.querySelector('.device-switcher');if(!cloud||!holder)return;
+ const device=appliances.find(a=>a.id===activeDevice),since=s=>s<90?'just now':s<5400?Math.round(s/60)+' min ago':Math.round(s/3600)+' h ago';
+ holder.replaceChildren();
+ for(const a of appliances){
+  const b=document.createElement('button'),name=document.createElement('div'),note=document.createElement('span');
+  b.type='button';b.className='device'+(a===device?' active':'');b.setAttribute('aria-pressed',String(a===device));b.innerHTML=icon(kindIcon[a.kind]||'dot');
+  name.textContent=a.name;note.textContent=a.lastSent?a.lastSent.label+' sent '+since(a.lastSent.secondsAgo):a.buttons.length+(a.buttons.length===1?' button':' buttons');
+  name.append(note);b.append(name);b.onclick=()=>selectDevice(a.id);holder.append(b);
+ }
+ $('remote-name').textContent=device?device.name:'No appliances yet';$('remote-section').setAttribute('aria-label',(device?device.name:'Appliance')+' controls');
+}
+async function refreshHub(){
+ if(!cloud)return;
+ try{
+  const state=await api('/api/hub'),sender=state.transmitter;
+  const signature=JSON.stringify(state.appliances.map(a=>[a.id,a.name,a.kind,a.careful,a.buttons.map(b=>[b.id,b.label,b.icon])]));
+  appliances=state.appliances;connected=sender.linked;document.body.dataset.connected=String(sender.online);
+  $('mode').textContent=!sender.linked?'No transmitter board is linked yet. Open Setup to link it.':!sender.online?'Transmitter offline · nothing is sent until it reconnects':sender.practice?'Transmitter online · practice mode: no infrared is sent':'Transmitter online';
+  if(signature!==hubSignature&&!sending){hubSignature=signature;confirming=null;cloudItems();index=Math.min(index,items.length-1);cancel();}
+  paintDevices();
+ }catch(e){$('mode').textContent=e.message;}
+}
+function available(command){return cloud||command==='pause'||command==='switch-device'||availableCommands.has(command);}
 function selectDevice(device){
  if(sending||modalOpen())return;
+ if(cloud){activeDevice=device;confirming=null;cloudItems();index=0;cancel();paintDevices();$('result').textContent='';return;}
  activeDevice=device;items=device==='tv'?tvItems:fanItems;
  iconNames=device==='tv'?['power','minus','plus','silence','minus','plus','mode','pause','fan']:['power','minus','plus','mode','silence','turn','timer','pause','tv'];
  index=0;cancel();
@@ -95,10 +133,14 @@ function paint(){
 }
 function cancel(){selector.reset();dwell.clear();paint();}
 function modalOpen(){return $('profile-dialog').open||$('setup-dialog').open;}
-function activate(){if(!connected||sending||modalOpen()||!available(items[index][0]))return;if(items[index][0]==='switch-device'){selectDevice(activeDevice==='fan'?'tv':'fan');return;}if(items[index][0]==='pause'){paused=true;cancel();$('tracking').textContent='Eye controls paused.';return;}send(items[index]);}
+function activate(){if(!connected||sending||modalOpen()||!available(items[index][0]))return;if(items[index][0]==='switch-device'){selectDevice(cloud?appliances[(appliances.findIndex(a=>a.id===activeDevice)+1)%appliances.length].id:activeDevice==='fan'?'tv':'fan');return;}if(items[index][0]==='pause'){paused=true;cancel();$('tracking').textContent='Eye controls paused.';return;}
+ if(cloud&&items[index][0]==='cancel'){confirming=null;cloudItems();index=0;cancel();$('result').textContent='Nothing was sent.';return;}
+ if(cloud&&items[index][0]==='confirm'){const action=confirming;confirming=null;cloudItems();index=0;send(action,true);return;}
+ if(cloud&&appliances.find(a=>a.id===activeDevice)?.careful){confirming=items[index];cloudItems();index=1;cancel();$('result').textContent='Send '+confirming[1]+'? Choose Yes or No.';return;}
+ send(items[index]);}
 function id(){const a=new Uint8Array(16);crypto.getRandomValues(a);return [...a].map(n=>n.toString(16).padStart(2,'0')).join('');}
-async function api(route,body){const r=await fetch(route,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(7000)});const data=await r.json();if(!r.ok)throw Error(data.message||'Controller unavailable');return data;}
-async function send(action){if(!connected||sending||modalOpen()||!available(action[0]))return;sending=true;resetHold();$('result').textContent='Sending '+action[1]+'…';paint();try{const result=await api('/api/command',{command:action[0],request_id:id(),created_at:Date.now()});$('result').textContent=action[1]+': '+result.message;}catch(e){$('result').textContent=e.message+' No automatic retry.';}finally{sending=false;cancel();}}
+async function api(route,body){const r=await fetch(route,{method:body?'POST':'GET',headers:{...(cloud?{}:{Authorization:'Bearer '+token}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(cloud?20000:7000)});const data=await r.json();if(!r.ok)throw Error(data.message||'Controller unavailable');return data;}
+async function send(action,confirmed=false){if(!connected||sending||modalOpen()||!available(action[0]))return;sending=true;resetHold();$('result').textContent='Sending '+action[1]+'…';paint();try{const result=cloud?await api('/api/send',{button_id:action[0],request_id:id(),created_at:Date.now(),...(confirmed?{confirm:true}:{})}):await api('/api/command',{command:action[0],request_id:id(),created_at:Date.now()});$('result').textContent=action[1]+': '+result.message;}catch(e){$('result').textContent=e.name==='TimeoutError'?'No answer from the website. Check the appliance before trying again.':e.message+(cloud?'':' No automatic retry.');}finally{sending=false;cancel();if(cloud)refreshHub();}}
 function gesture(direction){
  if(sending||calibrating||!connected||modalOpen())return;
  if(paused){dwell.arm('resume');showHold();return;}
@@ -216,4 +258,5 @@ $('setup-launch').onclick=()=>openSetup('camera');
 
 document.addEventListener('visibilitychange',()=>{selector.reset();resetHold();if(document.hidden){paused=true;cancel();if(calibrating){calibrating=null;goSetup('retry');$('setup-error').textContent='Setup paused when you left this page. Try this direction again when you are ready.';}}});
 window.addEventListener('pagehide',stop);
+if(cloud){cloudItems();refreshHub();setInterval(()=>{if(!document.hidden)refreshHub();},5000);}
 paint();updateProfileUI();if(!profiles.active)openProfiles();else resumeSetup();

@@ -8,6 +8,44 @@ on:
 permissions:
   contents: read
 jobs:
+  # Both board sketches are compiled for a real ESP32 (the standard 4 MB layout), so a sketch that
+  # does not build, or no longer fits, is caught here and not at the workbench.
+  firmware:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install the ESP32 boards and the two libraries
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+          arduino-cli lib install IRremoteESP8266 ArduinoJson
+          arduino-cli core list | sed 's/^/::notice title=Board package::/'
+          arduino-cli lib list | sed 's/^/::notice title=Library::/'
+      # With the Wi-Fi name left as the placeholder the compiler drops the whole website link, so
+      # the sketches are also built with a made-up name: that is the size a configured board has.
+      - name: Copies with a Wi-Fi name filled in
+        run: |
+          mkdir configured
+          cp -r hands-free/hardware/transmitter/IRTransmitter hands-free/hardware/receiver/IRCapture configured/
+          sed -i 's/WIFI_SSID\[\] = "CHANGE_ME"/WIFI_SSID[] = "build-check"/' configured/IRTransmitter/Config.h configured/IRCapture/Config.h
+          grep -q build-check configured/IRTransmitter/Config.h && grep -q build-check configured/IRCapture/Config.h
+      - name: Compile the transmitter sketch
+        run: |
+          set -o pipefail
+          for sketch in hands-free/hardware/transmitter/IRTransmitter configured/IRTransmitter; do
+            arduino-cli compile --fqbn esp32:esp32:esp32 $sketch 2>&1 | tee transmitter.log || { grep -iE "error|too big|No such file" transmitter.log | head -15 | sed "s|^|::error title=Transmitter sketch ($sketch)::|"; exit 1; }
+            grep -E "Sketch uses|Global variables" transmitter.log | sed "s|^|::notice title=Transmitter sketch ($sketch)::|"
+          done
+      - name: Compile the receiver sketch
+        if: always()
+        run: |
+          set -o pipefail
+          for sketch in hands-free/hardware/receiver/IRCapture configured/IRCapture; do
+            arduino-cli compile --fqbn esp32:esp32:esp32 $sketch 2>&1 | tee receiver.log || { grep -iE "error|too big|No such file" receiver.log | head -15 | sed "s|^|::error title=Receiver sketch ($sketch)::|"; exit 1; }
+            grep -E "Sketch uses|Global variables" receiver.log | sed "s|^|::notice title=Receiver sketch ($sketch)::|"
+          done
   build-and-test:
     runs-on: windows-latest
     timeout-minutes: 20

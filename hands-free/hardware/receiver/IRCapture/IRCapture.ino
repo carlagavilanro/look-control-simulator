@@ -5,8 +5,10 @@
 #include <IRutils.h>
 #include "Config.h"
 #include "CaptureStore.h"
+#include "CloudReceiver.h"
 
 // Capture board only. Automatically saves locally, with no computer or Wi-Fi.
+// With Wi-Fi filled in (Config.h) it also sends what it saved to the website: CloudReceiver.h.
 IRrecv receiver(IR_RECEIVER_PIN, CAPTURE_BUFFER_SIZE, CAPTURE_TIMEOUT_MS, true);
 decode_results results;
 uint32_t captureSequence = 0;
@@ -25,6 +27,7 @@ void handleSerialCommands() {
     if(!serialCommandOverflow) {
       serialCommand.trim();
       if(serialCommand == "STATUS") printCaptureStatus();
+      else if(serialCommand == "CLOUD") printWebsiteStatus();
       else if(serialCommand == "EXPORT") {
         receiver.disableIRIn(); exportCaptures(); receiver.enableIRIn();
       } else if(serialCommand == "ERASE SAVED CAPTURES") {
@@ -42,11 +45,14 @@ void setup() {
   receiver.setUnknownThreshold(6);
   receiver.enableIRIn();
   printCaptureStatus();
+  beginWebsite();
 }
 
 void loop() {
   handleSerialCommands();
+  handleWebsite();
   if (receiver.decode(&results)) {
+    websiteNoteSignal();
     JsonDocument capture;
     capture["type"] = "capture";
     capture["schema"] = 1;
@@ -74,6 +80,7 @@ void loop() {
     else {
       String reason;
       const bool saved = saveCapture(capture, reason);
+      if(saved) websiteNoteSaved(capture["capture_id"].as<uint32_t>());
       capture["saved"] = saved;
       if(!saved) {
         capture.remove("capture_id");

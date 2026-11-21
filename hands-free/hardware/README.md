@@ -1,5 +1,35 @@
 # Separate IR receiver and transmitter
 
+**November update: both boards can link to the website.** Flash each board once from a computer. After that it only needs power: it joins Wi-Fi by itself and works with no computer attached. The receiver sends every signal it saves to the website, where it becomes a named button of a device. The transmitter collects the commands chosen on the website or in the Windows app and sends the infrared. Everything below about local saving, USB tools and the local Wi-Fi page still applies.
+
+```text
+Original remote -> receiver ESP32 (GPIO 15) --Wi-Fi--> website (stores devices and buttons)
+                                                           |
+Windows app / website page: "Use saved devices" -----------+
+                                                           |
+appliance <- infrared <- transmitter ESP32 (GPIO 4) <-Wi-Fi-+
+```
+
+## Linking a board to the website
+
+1. Open the board's `Config.h` and fill in `WIFI_SSID` and `WIFI_PASSWORD` (a 2.4 GHz network). `CLOUD_HOST` is already the website. Do this only on your own computer, and do not share the file afterwards.
+2. In Arduino IDE install the **ESP32** board package and the libraries **IRremoteESP8266** and **ArduinoJson 7**, choose the board and its port, keep the default partition scheme, and upload. Do not choose "Erase All Flash" for a receiver that holds recordings you want to keep.
+3. Open the Serial Monitor at **115200 baud**. Within about a minute the board prints `LINK CODE 123 456` (the receiver prints it inside a JSON line, and repeats it every 30 seconds).
+4. Sign in on the website, open **Setup**, type the six digits under **Link code** and press **Link**. The board prints `Linked to ...`.
+5. Unplug it and power it from any USB supply. It reconnects and carries on by itself.
+
+The website gives each board a key of its own when the code is typed. The key lives in the board's flash (not in `Config.h`) and is never printed. Removing a board on the Setup page makes its key worthless; the board then prints a new code.
+
+What each sketch gains, and what it keeps:
+
+- **Receiver** (`CloudReceiver.h`): still saves every usable signal in its own storage first, with or without Wi-Fi, and never deletes anything by sending. Saved recordings are sent oldest first; ones made offline are sent when the website is next reachable. `STATUS`, `EXPORT` and `ERASE SAVED CAPTURES` work as before, `capture.ps1` and `download-receiver.ps1` keep working, and `CLOUD` prints the link's state.
+- **Transmitter** (`CloudTransmitter.h`): keeps its own signal library, the local Wi-Fi page and the USB fan test (`FanTest.h`: send 1 to 7 in the Serial Monitor). A website command arrives as a one-entry library and passes the same checks as a stored signal; the infrared is sent by the main loop with the same 0.8 second gap. `PRACTICE_MODE` still means no infrared, and the website says so.
+- **Shared** (`CloudLink.h`, `CloudCert.h`, identical in both folders): the link runs in its own task, so infrared timing and USB commands never wait for the network. The board talks only to a site that proves, through a Let's Encrypt root certificate, that it is `CLOUD_HOST`.
+
+Safety on the way: the website hands a command to the transmitter only within six seconds of the request. A command that is not collected in time is dropped and reported as not sent; it is never delivered late.
+
+How this was checked: both sketches are compiled for an ESP32 on every push (see the build workflow), and their logic was run on a PC against the website's real code with stand-ins for Wi-Fi, flash and infrared (`pc-check/`). Neither replaces a test on the boards themselves.
+
 **October 6 update: the receiver saves automatically when powered.** It does not need a computer, running script, Wi-Fi or the transmitter to record. See [Automatic capture](AUTO-CAPTURE.md) for downloading and naming stored captures. The live USB workflow below remains available.
 
 This replaces the combined receiver/transmitter sketch with **two independent ESP32 projects**.

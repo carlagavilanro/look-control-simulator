@@ -1,4 +1,55 @@
-CURRENT VERSION 0.4.38 - A REPAIR THAT DOES NOT CHECK OUT IS NOT KEPT
+CURRENT VERSION 0.4.39 - YOUR DEVICES: USE SAVED DEVICES, SET UP A DEVICE
+The task menu has two new buttons.
+
+USE SAVED DEVICES
+Your devices (fan, TV, ...) and their buttons. Choose a device, then
+hold a button for 0.6 seconds. The command goes to the website, and the
+transmitter board collects it there and sends the infrared.
+  - The bar at the top says what happened: sent, not sent, or sent
+    without a confirmation from the board. A command is never sent
+    late: if the board does not collect it within a few seconds it is
+    dropped and the bar says that nothing was sent.
+  - A device set to "ask first" (a heater is, unless you change it on
+    the website) shows No and Yes before anything is sent. No comes
+    first.
+  - The fan is there from the start, with the seven recordings that
+    already drive it.
+
+SET UP A DEVICE
+  1. Add a device: choose its kind, then write its name with the
+     keyboard (the kind's name is filled in; change it or keep it).
+  2. Add a button: write its name with the keyboard, for example
+     On/off.
+  3. Press that button on the remote in front of the receiver board.
+     The signal is stored on the website under that name. "Try" sends
+     it through the transmitter at once.
+  Waiting for the remote ends by itself after 90 seconds, or with
+  "Stop waiting". Nothing is recorded then.
+  Renaming and removing devices and buttons is done on the website
+  (Setup), not by eye.
+
+LINKING THIS APP, ONCE
+The first time, the app shows a six-digit code. Sign in at
+control.carla.codes, open Setup and type the code under "Link code".
+The website then gives this app a key of its own. The key is kept on
+this computer, protected by Windows for your account, and goes only to
+that website. Removing the app on the website's Setup page makes the
+key worthless; the app then shows a new code.
+
+WHAT THIS NEEDS
+  - The website (control.carla.codes) and an internet connection.
+  - For sending: the transmitter board, powered and linked.
+  - For recording: the receiver board, powered and linked.
+  The eye tracking itself is unchanged in this version and still works
+  with no internet.
+
+NOT TESTED ON YOUR PC
+The app's new part could not be run on my side inside Windows. Its
+link to the website was tested against the website's own code, and the
+menus were tested in a browser with both board programs running on a
+PC. Tell me if a device button does nothing or the code does not show.
+
+PREVIOUS VERSION 0.4.38 - A REPAIR THAT DOES NOT CHECK OUT IS NOT KEPT
 What prompted it: the two recordings of 21 Nov, 07:19 and 07:20, made with
 the laptop's own camera (zoom at 100 this time): a calibration, five more
 head positions, then "Refine accuracy" and its check.

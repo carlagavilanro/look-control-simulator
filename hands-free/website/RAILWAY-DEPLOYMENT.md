@@ -2,6 +2,17 @@
 
 The cloud website runs `cloud-server.mjs`; the existing LAN gateway continues to use `server.mjs`. The Dockerfile starts only the cloud server and copies only public assets and its server source. It does not include the local configuration, ESP32 secrets, or node_modules.
 
+## Devices, boards and storage (November)
+
+The cloud server now includes the device hub (`hub.mjs`): devices and their buttons, the recordings sent by the receiver board, and the commands the transmitter board collects. Boards and the Windows app connect out to the site; the site never connects to them.
+
+- The service builds from GitHub: repository `carlagavilanro/look-control-simulator`, branch `main`, root directory `/hands-free/website`. A push to `main` deploys.
+- **Storage:** attach a Railway volume to the service (for example at `/data`). The server keeps `hub.json` in `RAILWAY_VOLUME_MOUNT_PATH`. Because the image runs as a non-root user and a volume belongs to root, also set the variable `RAILWAY_RUN_UID=0`. Without a volume the setup lasts only until the next restart, and the Setup page says so.
+- Keep **one replica**: links being typed and commands in flight are held in memory.
+- New routes: `/setup` (signed in), `/api/hub`, `/api/send` and the setup routes (signed in, or a linked app for looking, sending and setting up a device), `/api/pair/start` and `/api/pair/claim` (public, rate limited: a board or app asks for a link code), `/api/device/*` (a linked board, with its own key).
+- Only a hash of each board or app key is stored. Requests that change something with the sign-in cookie must come from the site's own pages.
+- The Windows download is no longer in the image: `/downloads/Hands-Free-Screen-Control-Windows.zip` redirects to the newest GitHub release, which the build publishes.
+
 ## Cloud environment
 
 - `SITE_USERNAME`: website sign-in username.
@@ -13,9 +24,9 @@ The cloud website runs `cloud-server.mjs`; the existing LAN gateway continues to
 
 The initial cloud release has one shared website login, not separate registered user accounts. Login uses an HttpOnly, Secure, SameSite cookie. Sign-in attempts are rate limited. The app and MediaPipe files require a session. Login styling/fonts and a minimal health endpoint are public.
 
-## Initial release scope
+## Scope
 
-Camera preview, local MediaPipe processing, and local calibration profiles are available after sign-in. All appliance commands are rejected with HTTP 503, and the website explains that the controller connection is not set up. There is no simulated success, remote ESP32 connection, video upload, or video storage. Firmware changes will be a separate step.
+Camera preview, local MediaPipe processing, and local calibration profiles are available after sign-in. Device commands go to a linked transmitter board; with none linked or online they are rejected and the page says that nothing was sent. There is no simulated success, video upload, or video storage.
 
 Configure `control.carla.codes` in Railway and add exactly its supplied DNS records in Cloudflare after checking for existing records. Use DNS-only CNAME routing for initial certificate verification. Do not replace the root domain or another service's records.
 

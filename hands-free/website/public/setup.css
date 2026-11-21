@@ -1,0 +1,44 @@
+/* Setup page: boards, appliances and recordings. Large targets throughout, so the page can also
+   be worked with the eye pointer of the Windows app. */
+.setup-block{background:#fff;border:1px solid var(--border);border-radius:23px;padding:26px;margin-bottom:22px}
+.setup-block h2{font-size:22px;letter-spacing:-.8px;margin:0 0 16px;font-weight:700}
+.setup-block h3{font-size:17px;margin:0;font-weight:700;display:flex;align-items:center;gap:10px}
+.hint{font-size:13px;line-height:1.6;color:var(--muted);margin:8px 0 0}
+.notice{background:#ede3fc;border-left:5px solid var(--purple);border-radius:10px;padding:14px 16px;font-weight:700;font-size:14px;line-height:1.5;margin:0 0 20px}
+.notice.warning{background:#fff4d6;border-left-color:#8a6100;color:#4a3500}
+.notice.problem{background:#fdecea;border-left-color:#b3261e;color:#5c1410}
+.status-row{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:18px}
+.status-chip{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:14px;padding:12px 16px;font-size:14px;font-weight:700;background:#faf9fc}
+.status-chip small{display:block;font-weight:500;font-size:12px;color:var(--muted);margin-top:2px}
+.status-chip .lamp{width:10px;height:10px;border-radius:50%;background:#a3a0ad;flex-shrink:0}
+.status-chip[data-state=online] .lamp{background:#2f8a57}.status-chip[data-state=offline] .lamp{background:#b3261e}
+.link-form,.add-form{margin:0 0 6px}.link-form label,.add-form label{font-size:14px}
+.link-row{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch}
+.link-row input{flex:1 1 180px;font-size:16px}#link-code{flex:0 1 190px;font-size:22px;letter-spacing:3px;font-weight:700;text-align:center}
+.link-row select,.row-actions select{min-height:48px;border:1px solid #e4dfec;border-radius:10px;background:#fcfbfd;padding:0 12px;font:inherit;font-size:14px;color:var(--ink)}
+.link-row .primary-button,.row-actions button,.chips button,.dialog-actions button{font-size:14px;padding:12px 18px}
+.rows{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:10px}
+.rows>li{display:flex;flex-wrap:wrap;align-items:center;gap:12px;border:1px solid var(--border);border-radius:14px;padding:12px 14px;background:#faf9fc}
+.rows>li.empty{color:var(--muted);font-size:14px;background:transparent;border-style:dashed}
+.row-main{flex:1 1 220px;min-width:0;font-size:15px;font-weight:700;display:flex;align-items:center;gap:10px}
+.row-main small{display:block;font-size:12px;font-weight:500;color:var(--muted);margin-top:3px;line-height:1.4}
+.row-main svg{color:var(--purple)}
+.row-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.row-actions input{min-width:0;width:170px;font-size:14px}
+.row-actions button.danger{color:#8f1d16}.row-actions button.armed{background:#b3261e;border-color:#b3261e;color:#fff}
+.appliance{border:1px solid var(--border);border-radius:18px;padding:18px;margin-bottom:16px}
+.appliance-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between}
+.appliance-head h3 svg{color:var(--purple)}
+.check{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:600;margin:12px 0 0}.check input{width:22px;height:22px;min-height:0;padding:0;accent-color:var(--purple)}
+.record{margin-top:16px;border-top:1px solid var(--border);padding-top:14px}
+.record>label{font-size:14px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}.chips button{min-height:44px;background:#f3eff8;border-color:#e2d9ef}
+.waiting{display:flex;flex-wrap:wrap;align-items:center;gap:14px;background:#292632;color:#fff;border-radius:14px;padding:16px 18px;margin-top:14px;font-size:15px;font-weight:700;line-height:1.5}
+.waiting small{display:block;font-weight:500;color:#c7c0d3;font-size:13px}.waiting>div{flex:1 1 240px}
+.waiting .pulse{width:14px;height:14px;border-radius:50%;background:#d7bbff;animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+.text-button{background:none;border:0;min-height:44px;font-size:13px;font-weight:700;color:var(--purple);padding:8px 10px}
+.top-actions form{margin:0}.top-actions .secondary-button{display:inline-flex;align-items:center;font-weight:700;border-radius:12px}
+.dialog-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+#edit-dialog h2{margin:0 0 16px;font-size:22px}
+@media(max-width:600px){.setup-block{padding:18px}.row-actions input{width:100%}.top-actions .secondary-button{display:none}}

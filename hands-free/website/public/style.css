@@ -169,3 +169,4 @@ dialog.setup-dialog { width: min(680px,calc(100vw - 32px)); max-height: calc(100
 
 .device-switcher button.device { text-align:left; color:var(--ink); font:inherit; cursor:pointer; }
 .device-switcher button.device:focus-visible { outline:3px solid var(--focus); outline-offset:3px; }
+.device-choices{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:0 0 22px}.device-choices .primary-button,.device-choices .secondary-button{font-size:15px;min-height:56px;padding:14px 22px;display:inline-flex;align-items:center;border-radius:12px;font-weight:700}

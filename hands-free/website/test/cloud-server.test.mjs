@@ -6,7 +6,7 @@ const credentials={username:'test-user',password:'test-only-password-32-characte
 test('cloud mode refuses to start without a strong login password',()=>{
  assert.throws(()=>createCloudServer({username:'test',password:''}),/SITE_PASSWORD/);
 });
-test('cloud sign-in protects the app and model, rejects commands, and supports logout',async t=>{
+test('cloud sign-in protects the app and model, sends nothing without a transmitter, and supports logout',async t=>{
  const server=createCloudServer(credentials);await new Promise(r=>server.listen(0,'127.0.0.1',r));
  t.after(()=>{server.closeAllConnections();server.close();});
  const base=`http://127.0.0.1:${server.address().port}`;
@@ -26,8 +26,13 @@ test('cloud sign-in protects the app and model, rejects commands, and supports l
  const page=await get('/',{headers});assert.equal(page.status,200);assert.match(await page.text(),/cloud-mode.mjs/);
  assert.equal((await get('/vendor/profile-store.mjs',{headers})).status,200);
  assert.equal((await get('/vendor/face_landmarker.task',{headers})).status,200);
- const state=await (await get('/api/status',{headers})).json();assert.equal(state.online,false);
- const command=await get('/api/command',{method:'POST',headers,body:'{}'});assert.equal(command.status,503);assert.match((await command.json()).message,/No command was sent/);
+ const state=await (await get('/api/hub',{headers})).json();assert.equal(state.transmitter.linked,false);assert.equal(state.transmitter.online,false);
+ assert.deepEqual(state.appliances.map(a=>[a.name,a.buttons.length]),[['Fan',7]]);
+ const send=body=>get('/api/send',{method:'POST',headers:{...headers,Origin:base,'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const command=await send({button_id:state.appliances[0].buttons[0].id,request_id:'0123456789abcdef0123456789abcdef',created_at:Date.now()});
+ assert.equal(command.status,503);assert.match((await command.json()).message,/No transmitter board is linked yet\. No command was sent/);
+ assert.equal((await send({})).status,400);
+ for(const old of ['/api/status','/api/command'])assert.equal((await get(old,{headers})).status,404);
  assert.equal((await get('/config.local.json',{headers})).status,404);
  assert.equal((await get('/logout',{method:'POST',headers:{...headers,Origin:base}})).status,303);
  assert.equal((await get('/api/status',{headers})).status,401);

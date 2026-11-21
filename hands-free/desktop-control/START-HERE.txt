@@ -1,4 +1,28 @@
-CURRENT VERSION 0.4.39 - YOUR DEVICES: USE SAVED DEVICES, SET UP A DEVICE
+CURRENT VERSION 0.4.40 - ON THE WEBSITE, ITS OWN PAGES CAN BE USED BY EYE
+Nothing changes in this Windows app. The change is for eye control in a
+browser, at control.carla.codes -> Screen control.
+
+In a browser, eye control cannot reach outside its own page. So the
+task "Browse & scroll" is now "Use this website" there: the website's
+Devices page is shown inside Screen control, and looking at one of its
+buttons and holding selects it, as with another program's controls in
+this app.
+  - Device buttons send through the transmitter board.
+  - "Set up a device" on that page opens the setup page in the same
+    place. A text box takes what the eye keyboard writes, Enter submits
+    it, and a drop-down list is offered as large buttons.
+  - Scroll down and Scroll up move the page.
+  - While one of the page's own dialogs is open, only its buttons are
+    offered.
+The two tasks "Use saved devices" and "Set up a device" are still
+there, here and on the website, and have the larger buttons.
+
+TESTED in a browser with the transmitter program running on a PC: the
+pages appear in place, their controls are offered at the right places
+on the screen, pressing sends, writing and Enter add a device. NOT
+tested: choosing those controls with real eye tracking.
+
+PREVIOUS VERSION 0.4.39 - YOUR DEVICES: USE SAVED DEVICES, SET UP A DEVICE
 The task menu has two new buttons.
 
 USE SAVED DEVICES

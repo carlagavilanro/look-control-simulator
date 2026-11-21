@@ -166,3 +166,5 @@ label.check input{width:auto}
 /* 0.4.35: why a start did not happen, on the setup page. Small print under the panel read as "the button does nothing". */
 #welcome-status.alert{margin:14px 0;padding:12px 16px;border-left:5px solid #b3261e;border-radius:10px;background:#fdecea;color:#5c1410;font-weight:700}
 #welcome-status:empty{display:none}
+/* On the website the site's own pages take the place of the practice page (screen-site.mjs). */
+#practice-scene.site{padding:0}#practice-scene.site>:not(#site-frame){display:none}#site-frame{position:absolute;left:0;top:90px;width:100%;height:60%;border:0;background:#f6f5f8}

@@ -10,7 +10,9 @@ let activeDevice='fan',items=fanItems,availableCommands=new Set(fanItems.filter(
 let iconNames=['power','minus','plus','mode','silence','turn','timer','pause','tv'];
 // On the website (cloud mode) the devices and their buttons are the ones set up on the site, not
 // the two fixed lists above, and a command goes to the transmitter board through the site.
-const cloud=globalThis.handsFreeCloud===true,kindIcon={fan:'fan',tv:'tv',heater:'heat',light:'light',other:'dot'};
+// embedded: this page is shown inside Screen control, to be used with its eye pointer. Its own
+// camera, profiles and look-left-or-right controls are then left out.
+const cloud=globalThis.handsFreeCloud===true,embedded=cloud&&window.top!==window.self,kindIcon={fan:'fan',tv:'tv',heater:'heat',light:'light',other:'dot'};
 let appliances=[],confirming=null,hubSignature='';
 function cloudItems(){
  const device=appliances.find(a=>a.id===activeDevice)||appliances[0];
@@ -19,8 +21,9 @@ function cloudItems(){
  // An appliance that asks first (a heater) shows two choices, with "No" in focus.
  if(confirming){items=[['confirm','Yes, send '+confirming[1]],['cancel','No, go back']];iconNames=['check','pause'];return;}
  const more=appliances.length>1,next=appliances[(appliances.indexOf(device)+1)%appliances.length];
- items=[...device.buttons.map(b=>[b.id,b.label]),['pause','Pause eye controls'],...(more?[['switch-device','Next: '+next.name]]:[])];
- iconNames=[...device.buttons.map(b=>b.icon),'pause',...(more?[kindIcon[next.kind]||'dot']:[])];
+ const pause=embedded?[]:[['pause','Pause eye controls']];
+ items=[...device.buttons.map(b=>[b.id,b.label]),...pause,...(more?[['switch-device','Next: '+next.name]]:[])];
+ iconNames=[...device.buttons.map(b=>b.icon),...pause.map(()=>'pause'),...(more?[kindIcon[next.kind]||'dot']:[])];
 }
 function paintDevices(){
  const holder=document.querySelector('.device-switcher');if(!cloud||!holder)return;
@@ -30,7 +33,7 @@ function paintDevices(){
   const b=document.createElement('button'),name=document.createElement('div'),note=document.createElement('span');
   b.type='button';b.className='device'+(a===device?' active':'');b.setAttribute('aria-pressed',String(a===device));b.innerHTML=icon(kindIcon[a.kind]||'dot');
   name.textContent=a.name;note.textContent=a.lastSent?a.lastSent.label+' sent '+since(a.lastSent.secondsAgo):a.buttons.length+(a.buttons.length===1?' button':' buttons');
-  name.append(note);b.append(name);b.onclick=()=>selectDevice(a.id);holder.append(b);
+  name.append(note);b.append(name);b.setAttribute('aria-label',a.name+', '+note.textContent);b.onclick=()=>selectDevice(a.id);holder.append(b);
  }
  $('remote-name').textContent=device?device.name:'No appliances yet';$('remote-section').setAttribute('aria-label',(device?device.name:'Appliance')+' controls');
 }
@@ -259,4 +262,4 @@ $('setup-launch').onclick=()=>openSetup('camera');
 document.addEventListener('visibilitychange',()=>{selector.reset();resetHold();if(document.hidden){paused=true;cancel();if(calibrating){calibrating=null;goSetup('retry');$('setup-error').textContent='Setup paused when you left this page. Try this direction again when you are ready.';}}});
 window.addEventListener('pagehide',stop);
 if(cloud){cloudItems();refreshHub();setInterval(()=>{if(!document.hidden)refreshHub();},5000);}
-paint();updateProfileUI();if(!profiles.active)openProfiles();else resumeSetup();
+paint();updateProfileUI();if(embedded)document.documentElement.classList.add('embedded');else if(!profiles.active)openProfiles();else resumeSetup();

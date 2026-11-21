@@ -11,6 +11,7 @@ The cloud server now includes the device hub (`hub.mjs`): devices and their butt
 - Keep **one replica**: links being typed and commands in flight are held in memory.
 - New routes: `/setup` (signed in), `/api/hub`, `/api/send` and the setup routes (signed in, or a linked app for looking, sending and setting up a device), `/api/pair/start` and `/api/pair/claim` (public, rate limited: a board or app asks for a link code), `/api/device/*` (a linked board, with its own key).
 - Only a hash of each board or app key is stored. Requests that change something with the sign-in cookie must come from the site's own pages.
+- The site's pages may be framed by the site itself (`X-Frame-Options: SAMEORIGIN`): in a browser, Screen control shows the Devices and Setup pages in a frame so they can be used with the eye pointer.
 - The Windows download is no longer in the image: `/downloads/Hands-Free-Screen-Control-Windows.zip` redirects to the newest GitHub release, which the build publishes.
 
 ## Cloud environment

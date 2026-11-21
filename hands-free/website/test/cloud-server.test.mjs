@@ -24,6 +24,8 @@ test('cloud sign-in protects the app and model, sends nothing without a transmit
  for(const attr of ['HttpOnly','Secure','SameSite=Strict'])assert.ok(setCookie.includes(attr));
  const headers={Cookie:setCookie.split(';')[0]};
  const page=await get('/',{headers});assert.equal(page.status,200);assert.match(await page.text(),/cloud-mode.mjs/);
+ // The site's pages may be framed by the site itself (Screen control shows them to be used by eye), by nobody else.
+ assert.equal(page.headers.get('x-frame-options'),'SAMEORIGIN');assert.equal((await get('/screen-site.mjs')).status,303);assert.equal((await get('/screen-site.mjs',{headers})).status,200);
  assert.equal((await get('/vendor/profile-store.mjs',{headers})).status,200);
  assert.equal((await get('/vendor/face_landmarker.task',{headers})).status,200);
  const state=await (await get('/api/hub',{headers})).json();assert.equal(state.transmitter.linked,false);assert.equal(state.transmitter.online,false);

@@ -28,6 +28,9 @@ const drafts={youtube:'',google:'',app:'',launch:'',ask:''};
 // ask: a name being written with the keyboard (a device or one of its buttons). waitingFor: the
 // button the receiver board is being waited on for. linkingApp: this app is showing a link code.
 let ask=null,waitingFor=null,linkingApp=false;
+// site: in a browser on the website, the site's own pages (Devices, Set up a device) take the
+// place of the practice page and are used with the eye pointer. See screen-site.mjs.
+let site=null;
 const composerButtons=['draft-space','draft-delete','draft-submit','draft-enter','draft-options','draft-compact','draft-hide','draft-pause','word-0','word-1','word-2','draft-undo'];
 let wordEngine=new WordSuggestions(),wordChoices=[],typingUndo=null,autocorrect=true,typingRegion=null;
 try{autocorrect=localStorage.getItem('hands-free.autocorrect')!=='off';}catch{}
@@ -1416,7 +1419,7 @@ function recordTracking(prediction,view,now){
 }
 function trackingReport(){
  const stamp=JSON.stringify(model);let hash=2166136261;for(let i=0;i<stamp.length;i++)hash=Math.imul(hash^stamp.charCodeAt(i),16777619);
- return {version:'0.4.39',filter:{movementConfirmationMs:120,maximumInTargetPauseMs:300,medianWindowMs:150,selectionHoldMs:600,intentWindowMs:240},headEstimate,activePositionId:positionId,savedHeadPositions:headPositions.length,mapId:(hash>>>0).toString(16),camera:cameraStats,viewport:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},
+ return {version:'0.4.40',filter:{movementConfirmationMs:120,maximumInTargetPauseMs:300,medianWindowMs:150,selectionHoldMs:600,intentWindowMs:240},headEstimate,activePositionId:positionId,savedHeadPositions:headPositions.length,mapId:(hash>>>0).toString(16),camera:cameraStats,viewport:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},
   note:'Local session diagnostics. Movement between frames includes intentional eye movement; these are not target accuracy results. These are pointer stability measurements, not identified microsaccades or proof of gaze accuracy. No images, typed text, profile name, or raw eye features included.',
   runs:Object.fromEntries([...trackingRuns].map(([mode,rows])=>{
    const r=rows.filter(x=>performance.now()-x.at<=120000),rejected={};for(const x of r)if(!x.usable){const k=x.recovering?'recovering':x.reason;rejected[k]=(rejected[k]||0)+1;}
@@ -1434,7 +1437,8 @@ async function refreshPageTargets(){
   let result;
   if(desktop?.focusTargets){result=await desktop.focusTargets(focusRebind);focusRebind=false;}
   else if(!desktop){
-   result={scope:'practice',targets:[...document.querySelectorAll('[data-practice-action]')].map(b=>({id:b.dataset.practiceAction,label:b.getAttribute('aria-label')||b.textContent,kind:b.tagName==='INPUT'?'Edit':'Button',rect:b.getBoundingClientRect(),enabled:!b.disabled}))};
+   if(site)result={scope:'site',targets:site.targets()};
+   else result={scope:'practice',targets:[...document.querySelectorAll('[data-practice-action]')].map(b=>({id:b.dataset.practiceAction,label:b.getAttribute('aria-label')||b.textContent,kind:b.tagName==='INPUT'?'Edit':'Button',rect:b.getBoundingClientRect(),enabled:!b.disabled}))};
   }else result={scope:null,targets:[]};
   if(stage!=='browse'||reading||revision!==focusRevision)return;
   const dock=$('tiles').getBoundingClientRect(),top=document.querySelector('.statusbar').getBoundingClientRect().bottom+8;
@@ -1481,8 +1485,9 @@ function selectPageTarget(raw,p,steady,view,now){
   try{
    let result;
    if(desktop)result=await desktop.activateTarget(focusScope,found.id,found.rect);
-   else result=practiceActivate(found);
+   else result=site?site.activate(found):practiceActivate(found);
    if(!result)return;
+   if(result.choices){clearPageTargets();siteChoices(result);return;}
    // Hold the acquisition area, including a near miss in adjacent blank
    // space, until a deliberate look away. A changed page must not chain-click.
    const x=raw.x*innerWidth,y=raw.y*innerHeight;
@@ -1526,8 +1531,9 @@ async function openListed(target,index){
    const fresh=await desktop.focusTargets(false),current=(fresh.targets||[]).find(t=>t.id===target.id);
    if(!current)throw Error('That control is no longer there.');
    result=await desktop.activateTarget(fresh.scope,current.id,current.rect);
-  }else result=practiceActivate(target);
+  }else result=site?site.activate(target):practiceActivate(target);
   if(!result)throw Error('That control is no longer there.');
+  if(result.choices){siteChoices(result);return;}
   if(result.edit)compose('app');else browse();
   wakeRelease=release;wakeReleaseAt=null;blockedUntil=performance.now()+300;
  }catch{browse();wakeRelease=release;wakeReleaseAt=null;report('That control changed. Look again.');}
@@ -1593,7 +1599,7 @@ function tiles(label,entries,grid=false,page=0,options={}){
 }
 function entry(label,action,description=''){return {label,action,description};}
 async function run(action){if(busy)return;busy=true;try{await action();}catch(e){await pause();report(e.message);}finally{busy=false;}}
-async function command(payload){if(desktop)await desktop.command(payload);else{
+async function command(payload){if(desktop)await desktop.command(payload);else if(site){const said=site.command(payload);if(said)report(said);}else{
  if(payload.type==='text')$('practice-text').value+=payload.text;
  if(payload.type==='key'&&payload.key==='backspace')$('practice-text').value=$('practice-text').value.slice(0,-1);
  report('Practice only: '+(payload.type==='key'?payload.key:payload.type));
@@ -1607,13 +1613,13 @@ function menu(){
   entry('Search YouTube',()=>compose('youtube'),'Write a search, then open the video results'),
   entry('Search Google',()=>compose('google'),'Write a search, then open the results'),
   entry('Type into a text box',()=>typeHelp(),'Choose a text box in your browser or another app'),
-  entry('Browse & scroll',()=>browse(),'See your open app, scroll, or click a video'),
+  entry(site?'Use this website':'Browse & scroll',()=>browse(),site?'Devices and Set up a device, with your eyes':'See your open app, scroll, or click a video'),
   entry('Use saved devices',()=>devicesMenu(),'Send the buttons of your fan, TV and other devices'),
   entry('Set up a device',()=>deviceSetup(),'Add a device or a button and record it from its remote')]);
 }
-function browse(){hideComposer();stage='browse';document.body.classList.add('viewing');snapshot=null;$('snapshot').hidden=true;$('practice-scene').hidden=!!desktop;
+function browse(){hideComposer();stage='browse';document.body.classList.add('viewing');snapshot=null;$('snapshot').hidden=true;$('practice-scene').hidden=!!desktop;if(site){site.show('/');requestAnimationFrame(layoutSite);}
  const columns=innerWidth<700?3:6,rows=Math.ceil(6/columns);
- tiles('Browse & scroll',[
+ tiles(site?'This website':'Browse & scroll',[
  entry('Scroll down',()=>command({type:'scroll',amount:-3})),entry('Scroll up',()=>command({type:'scroll',amount:3})),
  entry('Click a video or button',()=>startGrid()),entry('Type text',()=>compose('app')),
  coveredEntry=entry(coveredLabel(),()=>coveredControls()),
@@ -1638,6 +1644,22 @@ function appsMenu(page='apps'){hideComposer();stage='apps';document.body.classLi
  $('hint').textContent=page==='keys'?'Tab moves to the next box or button of the app, as on a keyboard. Hold a button for 0.6 seconds.':'Next app goes through your open windows one at a time. Hold a button for 0.6 seconds.';
 }
 async function openSite(site){if(desktop)await desktop.openSite(site,'');else report('Practice only. Use the Windows companion to open other apps.');browse();}
+// ---- This website's pages under the eye pointer (browser only) -----------------------------------
+// A drop-down list on the page, as large buttons.
+function siteChoices(result){stage='choose';pageGroup=null;tiles(result.label,[...result.choices.map(c=>entry(c.label,()=>{c.choose();browse();})),entry('Back',()=>browse())]);$('practice-scene').hidden=false;}
+// The frame sits between the bar at the top and whatever is docked at the bottom (the row of
+// buttons, or the keyboard), so the page is never under either.
+function layoutSite(){
+ if(!site||$('practice-scene').hidden)return;
+ const top=document.querySelector('.statusbar').getBoundingClientRect().bottom,dock=$('typing-dock').hidden?$('tiles').getBoundingClientRect().top:$('typing-dock').getBoundingClientRect().top;
+ site.layout(top+6,(dock>top+150?dock:document.querySelector('.controlbar').getBoundingClientRect().top)-6);
+}
+if(!desktop)fetch('/api/hub').then(async answer=>{
+ if(!answer.ok)return;
+ const {createSite}=await import('/screen-site.mjs');
+ site=createSite($('site-frame'));$('practice-scene').classList.add('site');$('site-frame').hidden=false;
+ setInterval(layoutSite,400);
+}).catch(()=>{});
 // ---- Devices (fan, TV, ...) ----------------------------------------------------------------------
 // "Use saved devices" sends the buttons of the devices that were set up. "Set up a device" adds a
 // device, then a button: its name is written with the keyboard, and the next signal the receiver
@@ -1994,7 +2016,7 @@ function shiftText(p){
 // window (shown when a check fails) and from the Paused and settings menus, so
 // that a session whose check passed can be saved too.
 async function saveDiagnosticsFile(){
- const text=JSON.stringify({format:'hands-free-diagnostics',formatVersion:1,app:'0.4.39',savedAt:new Date().toISOString(),screen:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},trackingMode:$('tracking-mode').value,setup:sessionSetup||null,camera:cameraStats||null,model:model||null,validation:validation||null,picture:stream?.getVideoTracks()[0]?pictureControls(stream.getVideoTracks()[0]):null,pictureLog,pictureProbe,lensChoice,lens:{inUse:lensControl(stream?.getVideoTracks()[0]).lens,byHand:handLens(),log:lensLog},faceEdges:edgeTally,reflections:reflections.bands,settings:{headMove:$('head-move').checked,lidInput:$('lid-input').checked,darkCalibration:$('dim-capture').checked,calibration:$('calibration-mode').value},recentre:{on:recentreOn(),shift:[Math.round(recentre.shift[0]*innerWidth),Math.round(recentre.shift[1]*innerHeight)],looking:recentre.looking.map(v=>Math.round(v*100)/100),log:recentreLog},light:lastLight,steps:diagnosticSteps,frameColumns:['time','step','point','status',...FRAME_FIELDS,...ALT_FIELDS.map(k=>'pixels_'+k),'eye_white_1','eye_white_2','eye_glare_1','eye_glare_2','eye_lid_1','eye_lid_2','eye_not_read'],frames:diagnosticFrames});
+ const text=JSON.stringify({format:'hands-free-diagnostics',formatVersion:1,app:'0.4.40',savedAt:new Date().toISOString(),screen:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},trackingMode:$('tracking-mode').value,setup:sessionSetup||null,camera:cameraStats||null,model:model||null,validation:validation||null,picture:stream?.getVideoTracks()[0]?pictureControls(stream.getVideoTracks()[0]):null,pictureLog,pictureProbe,lensChoice,lens:{inUse:lensControl(stream?.getVideoTracks()[0]).lens,byHand:handLens(),log:lensLog},faceEdges:edgeTally,reflections:reflections.bands,settings:{headMove:$('head-move').checked,lidInput:$('lid-input').checked,darkCalibration:$('dim-capture').checked,calibration:$('calibration-mode').value},recentre:{on:recentreOn(),shift:[Math.round(recentre.shift[0]*innerWidth),Math.round(recentre.shift[1]*innerHeight)],looking:recentre.looking.map(v=>Math.round(v*100)/100),log:recentreLog},light:lastLight,steps:diagnosticSteps,frameColumns:['time','step','point','status',...FRAME_FIELDS,...ALT_FIELDS.map(k=>'pixels_'+k),'eye_white_1','eye_white_2','eye_glare_1','eye_glare_2','eye_lid_1','eye_lid_2','eye_not_read'],frames:diagnosticFrames});
  try{
   if(desktop?.saveDiagnostics){const where=await desktop.saveDiagnostics(text);return {saved:true,file:String(where).split(/[\\/]/).pop(),message:`Diagnostics saved to ${where}. Numbers only: eye and head readings for each dot, the map and the check results. No images and no name.`};}
   const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([text],{type:'application/json'}));link.download='hands-free-diagnostics.json';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),10000);
@@ -2016,7 +2038,7 @@ $('diagnostics-bar').onclick=saveDiagnosticsNow;
 // The same as a tile in Keys & settings, for saving by gaze.
 function diagnosticsEntry(again){return entry(diagnosticsSaved?'Diagnostics saved':'Save diagnostics',async()=>{await saveDiagnosticsNow();again();});}
 $('copy-report').onclick=async()=>{
- const content=['Screen control 0.4.39',$('result-title').textContent,resultReport||$('result-copy').textContent,$('result-sides').textContent,...[...$('result-details').children].map(n=>n.textContent)].join('\n\n');
+ const content=['Screen control 0.4.40',$('result-title').textContent,resultReport||$('result-copy').textContent,$('result-sides').textContent,...[...$('result-details').children].map(n=>n.textContent)].join('\n\n');
  try{await navigator.clipboard.writeText(content);$('copy-report-status').textContent='Report copied. It contains results only, without images or raw eye samples.';}
  catch{$('copy-report-status').textContent='The browser could not copy the report. You can select and copy the results above.';}
 };

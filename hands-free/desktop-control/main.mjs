@@ -4,11 +4,11 @@ import {createInterface} from 'node:readline';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {checkCommand,siteUrl,InputGate} from './input-policy.mjs';
-import {CalibrationStore} from './calibration-store.mjs';
+import {checkCommand,siteUrl,InputGate,SWITCHES} from './input-policy.mjs';
+import {CalibrationStore,saveDiagnostics} from './calibration-store.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const assets=fs.existsSync(path.join(root,'public'))?path.join(root,'public'):path.resolve(root,'../website/public');
-const gate=new InputGate(),pending=new Map();let win,helper,id=0,closing=false,hiddenForInput=false;
+const gate=new InputGate(),pending=new Map();let win,helper,id=0,closing=false,hiddenForInput=false,typingTop=null;
 const dryRun=process.argv.includes('--dry-run');
 let accessibilityHelper=null,accessibilityReady=null,accessibleWindow=null,accessibilityAction=false,accessibilityGeneration=0,accessibleScope=null;
 const accessibilityPending=new Map();let accessibilityId=0;
@@ -66,7 +66,7 @@ async function start(){
  protocol.handle('handsfree',request=>{
   const u=new URL(request.url);let name;try{name=decodeURIComponent(u.pathname);}catch{return new Response('Invalid path',{status:400});}
   if(u.host!=='control'||name.includes('..')||name.includes('\\'))return new Response('Not found',{status:404});
-  const allowed=/^\/(screen(?:-app|-gaze|-worker|-eye-overlay|-positions|-targets|-camera|-typing|-eye-crop)?\.(?:html|css|mjs)|vendor\/[a-zA-Z0-9_.-]+)$/;
+  const allowed=/^\/(screen(?:-app|-gaze|-worker|-eye-overlay|-positions|-targets|-camera|-typing|-eye-crop|-iris-detail|-face-detail)?\.(?:html|css|mjs)|vendor\/[a-zA-Z0-9_.-]+)$/;
   if(!allowed.test(name))return new Response('Not found',{status:404});
   return net.fetch(pathToFileURL(path.join(assets,name.slice(1))).href);
  });
@@ -85,12 +85,15 @@ async function start(){
   trusted(e);const {width,height}=win.getContentBounds();
   if(top!==null&&(!Number.isFinite(top)||top<0||top>height-44))throw Error('Invalid typing region');
   // Clip drawing and hit testing without resizing the calibrated viewport.
-  win.setShape(top===null?[]:[{x:0,y:Math.floor(top),width,height:height-Math.floor(top)}]);return true;
+  win.setShape(top===null?[]:[{x:0,y:Math.floor(top),width,height:height-Math.floor(top)}]);typingTop=top;return true;
  });
  ipcMain.handle('screen:camera-settings',async e=>{trusted(e);gate.pause();globalShortcut.unregister('Escape');readingOverlay(false);win.minimize();await shell.openExternal('ms-settings:camera');return true;});
  ipcMain.handle('screen:profiles',async e=>{trusted(e);return calibrations.read();});
  ipcMain.handle('screen:save-calibration',async(e,name,record)=>{trusted(e);return calibrations.change(name,record);});
  ipcMain.handle('screen:delete-calibration',async(e,name)=>{trusted(e);await calibrations.change(name,null);return true;});
+ // Written only when Save diagnostics is pressed: beside the app when that
+ // folder can be written, otherwise with the app's own data.
+ ipcMain.handle('screen:save-diagnostics',async(e,text)=>{trusted(e);return saveDiagnostics([...(app.isPackaged?[path.join(path.dirname(process.execPath),'diagnostics')]:[]),path.join(app.getPath('userData'),'diagnostics')],text);});
  ipcMain.on('screen:quit',e=>{trusted(e);app.quit();});
  // Arming selections must not switch the foreground app or alter the camera
  // window. Native actions already hide the overlay before sending input.
@@ -129,7 +132,32 @@ async function start(){
  });
  ipcMain.handle('screen:command',async(e,p)=>{
   trusted(e);const command=checkCommand(p),epoch=gate.begin();
-  try{hiddenForInput=true;if(command.type==='key'&&command.key==='escape')globalShortcut.unregister('Escape');win.hide();await new Promise(r=>setTimeout(r,100));gate.recheck(epoch);await native({type:'remember'});if(command.type!=='click')await native({type:'restore'});gate.recheck(epoch);return await native(command);}
+  // While the typing keyboard is up, this window is cut down to the keyboard and does not hold
+  // the keyboard focus. Letters can then go to the app without the keyboard leaving the screen
+  // for each one. If the app cannot be given the focus that way, the window is hidden as before.
+  const quiet=typingTop!==null&&(command.type==='text'||command.type==='key'&&['backspace','enter','tab','shifttab'].includes(command.key));
+  const hide=async()=>{hiddenForInput=true;win.hide();await new Promise(r=>setTimeout(r,100));gate.recheck(epoch);};
+  const wait=ms=>new Promise(r=>setTimeout(r,ms));
+  try{
+   if(command.type==='key'&&command.key==='escape')globalShortcut.unregister('Escape');
+   if(!quiet)await hide();
+   await native({type:'remember'});
+   if(command.type!=='click'){
+    try{await native({type:'restore'});}
+    catch(error){if(hiddenForInput)throw error;await hide();await native({type:'remember'});await native({type:'restore'});}
+   }
+   gate.recheck(epoch);
+   if(command.type==='launch'){
+    // Windows' own search: the Windows key opens it, the name is typed, Enter opens the first
+    // result. Once begun it is finished: stopping half way would leave the search open.
+    await native({type:'key',key:'start'});await wait(900);
+    await native({type:'text',text:command.text});await wait(1500);
+    const opened=await native({type:'key',key:'enter'});accessibleWindow=null;return opened;
+   }
+   const result=await native(command);
+   if(command.type==='key'&&SWITCHES.has(command.key))accessibleWindow=null;
+   return result;
+  }
   finally{hiddenForInput=false;gate.finish();if(gate.armed)globalShortcut.register('Escape',()=>pause());if(!win.isDestroyed())win.showInactive();}
  });
  ipcMain.handle('screen:capture',async e=>{
@@ -155,7 +183,7 @@ async function start(){
  }
  await win.loadURL('handsfree://control/screen.html');win.show();
 }
-function pause(){gate.pause();if(accessibilityAction)stopAccessibility();globalShortcut.unregister('Escape');if(win&&!win.isDestroyed()){win.setShape([]);readingOverlay(false);if(!hiddenForInput)win.showInactive();win.webContents.send('screen:paused');}}
+function pause(){gate.pause();if(accessibilityAction)stopAccessibility();globalShortcut.unregister('Escape');typingTop=null;if(win&&!win.isDestroyed()){win.setShape([]);readingOverlay(false);if(!hiddenForInput)win.showInactive();win.webContents.send('screen:paused');}}
 app.on('before-quit',()=>{closing=true;gate.pause();helper?.kill();stopAccessibility();});
 app.on('will-quit',()=>globalShortcut.unregisterAll());
 app.on('window-all-closed',()=>app.quit());

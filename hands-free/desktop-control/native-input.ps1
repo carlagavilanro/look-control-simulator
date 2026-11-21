@@ -63,6 +63,10 @@ while ($null -ne ($line = [Console]::ReadLine())) {
    elseif ($p.key -eq 'back') { if (-not $DryRun) { [EyeInput]::Chord(18,37) } }
    elseif ($p.key -eq 'forward') { if (-not $DryRun) { [EyeInput]::Chord(18,39) } }
    elseif ($p.key -eq 'address') { if (-not $DryRun) { [EyeInput]::Chord(17,76) } }
+   elseif ($p.key -eq 'start') { if (-not $DryRun) { [EyeInput]::Key(91) } }
+   elseif ($p.key -eq 'nextapp') { if (-not $DryRun) { [EyeInput]::Chord(18,27) } }
+   elseif ($p.key -eq 'lastapp') { if (-not $DryRun) { [EyeInput]::Chord(18,9) } }
+   elseif ($p.key -eq 'notifications') { if (-not $DryRun) { if ([Environment]::OSVersion.Version.Build -ge 22000) { [EyeInput]::Chord(91,78) } else { [EyeInput]::Chord(91,65) } } }
    else { throw 'Unsupported key' }
   } else { throw 'Unsupported command' }
   [Console]::WriteLine((@{id=$p.id;ok=$true;dryRun=[bool]$DryRun} | ConvertTo-Json -Compress))

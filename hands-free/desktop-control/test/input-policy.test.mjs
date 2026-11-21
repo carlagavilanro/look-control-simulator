@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {checkCommand,siteUrl,InputGate} from '../input-policy.mjs';
+import {checkCommand,siteUrl,InputGate,KEYS,SWITCHES} from '../input-policy.mjs';
+import fs from 'node:fs';
 test('only bounded input commands and known key combinations are accepted',()=>{
  for(const p of [{type:'click',x:NaN,y:0},{type:'click',x:2,y:0},{type:'scroll',amount:100},{type:'key',key:'win+r'},{type:'text',text:'a\nb'},{type:'exec',cmd:'bad'}])assert.throws(()=>checkCommand(p));
  assert.deepEqual(checkCommand({type:'click',x:.2,y:.3,extra:'ignored'}),{type:'click',x:.2,y:.3});assert.equal(checkCommand({type:'text',text:'café 🌻'}).text,'café 🌻');
@@ -20,4 +21,21 @@ test('input requires explicit arming and fresh valid eyes; pause cancels a pendi
 });
 test('rate limit and operation epoch prevent replay after disarm/rearm',()=>{
  let now=1000;const g=new InputGate(()=>now);g.arm();g.heartbeat(true);const e=g.begin();g.finish();assert.throws(()=>g.begin());now+=400;g.heartbeat(true);g.pause();g.arm();g.heartbeat(true);assert.throws(()=>g.recheck(e));
+});
+// 0.4.33: other apps. Still a closed list: four named key presses and the name of an app to open.
+test('the keys for other apps are named ones, and every key the page may send is known to the helper',()=>{
+ for(const key of ['start','nextapp','lastapp','notifications'])assert.deepEqual(checkCommand({type:'key',key}),{type:'key',key});
+ for(const key of ['win','alt+tab','win+r','lwin','start ','START','ctrl+alt+del','f4','alt+f4','delete'])assert.throws(()=>checkCommand({type:'key',key}),key);
+ assert.deepEqual([...SWITCHES].sort(),['lastapp','nextapp','notifications','start']);for(const key of SWITCHES)assert.ok(KEYS.has(key));
+ // The Windows helper must know each key by the same name, or the press is refused there.
+ const helper=fs.readFileSync(new URL('../native-input.ps1',import.meta.url),'utf8'),table=helper.match(/\$keys = @\{([^}]*)\}/)[1];
+ for(const key of KEYS)assert.ok(new RegExp('(^|;)'+key+'=').test(table)||helper.includes(`$p.key -eq '${key}'`),`native-input.ps1 does not handle "${key}"`);
+ // Its braces and brackets still pair up (it cannot be run here).
+ for(const [open,close] of [['{','}'],['(',')'],['[',']']])assert.equal(helper.split(open).length,helper.split(close).length,`${open} ${close}`);
+});
+test('opening an app takes one short line of text and nothing else',()=>{
+ assert.deepEqual(checkCommand({type:'launch',text:'  Notepad '}),{type:'launch',text:'Notepad'});
+ assert.deepEqual(checkCommand({type:'launch',text:'calculadora',submit:true,extra:1}),{type:'launch',text:'calculadora'});
+ for(const text of ['',' ','a\nb','a\tb','x'.repeat(61),null,42,['notepad']])assert.throws(()=>checkCommand({type:'launch',text}),String(text));
+ assert.throws(()=>checkCommand({type:'launch'}));assert.throws(()=>checkCommand({type:'run',text:'notepad'}));
 });

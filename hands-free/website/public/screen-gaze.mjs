@@ -1,6 +1,11 @@
 import {sameCameraGeometry} from './screen-camera.mjs';
 // Local webcam estimates, not gaze coordinates supplied by MediaPipe.
-export const TRAIN_TARGETS = [[.5,.5],[.07,.07],[.5,.07],[.93,.07],[.93,.5],[.93,.93],[.5,.93],[.07,.93],[.07,.5],[.28,.28],[.72,.28],[.72,.72],[.28,.72]];
+// The outer calibration dots sit 4% in from the screen edges: as far out as a
+// whole dot still shows on a small screen. What lies beyond the outermost dots
+// is extrapolated, so the closer they are to the edge, the less of the screen
+// (its corners above all) is left to guesswork. They were at 7% up to 0.4.27.
+export const TRAIN_EDGE=.04;
+export const TRAIN_TARGETS = [[.5,.5],[TRAIN_EDGE,TRAIN_EDGE],[.5,TRAIN_EDGE],[1-TRAIN_EDGE,TRAIN_EDGE],[1-TRAIN_EDGE,.5],[1-TRAIN_EDGE,1-TRAIN_EDGE],[.5,1-TRAIN_EDGE],[TRAIN_EDGE,1-TRAIN_EDGE],[TRAIN_EDGE,.5],[.28,.28],[.72,.28],[.72,.72],[.28,.72]];
 // Different locations and later samples: never used to fit or choose the model.
 export const CHECK_TARGETS = [[.17,.18],[.83,.18],[.17,.82],[.83,.82],[.35,.53],[.65,.47],[.5,.22]];
 export const ALIGN_TARGETS = [[.5,.5],[.15,.18],[.85,.82],[.85,.18],[.15,.82]];
@@ -10,7 +15,7 @@ export function calibrationTargets(dense=false){
  // Alternate screen regions so gradual drift is less confounded with a
  // top-to-bottom sweep. Keep the center revisits as separate observations.
  const order=[12,0,24,4,20,2,22,10,14,6,18,8,16,1,23,3,21,5,19,9,15,7,17,11,13];
- const locations=dense?order.map(i=>[.07+(i%5)*.215,.07+Math.floor(i/5)*.215]):TRAIN_TARGETS;
+ const step=(1-2*TRAIN_EDGE)/4,locations=dense?order.map(i=>[TRAIN_EDGE+(i%5)*step,TRAIN_EDGE+Math.floor(i/5)*step]):TRAIN_TARGETS;
  // Revisit the center at different times. These are drift observations, not
  // independent targets for cross-validation.
  const halfway=Math.ceil(locations.length/2);
@@ -23,6 +28,13 @@ const core=['h','v','x','y','scale','roll'];
 const eyes=['lh','lv','rh','rv'];
 const pose=['yaw','pitch'];
 const validFeature=f=>!!f&&core.every(k=>Number.isFinite(f[k]))&&f.scale>0;
+// Head-position limits are fractions of the camera frame, tuned for a face that
+// spans a modest part of it (eye-to-eye scale up to about a third of the frame
+// height). Optical zoom or a close-up makes the same physical movement cover
+// more of the frame, so the sideways and up/down limits grow in proportion.
+// Without this, a zoomed-in view paused for head movements of a few millimetres.
+export const POSE_REFERENCE_SCALE=.35;
+export function poseZoom(scale){return Number.isFinite(scale)&&scale>POSE_REFERENCE_SCALE?scale/POSE_REFERENCE_SCALE:1;}
 // Head alignment must keep working through a blink or unclear iris reading.
 // These are the same face coordinates used by the saved gaze maps.
 export function screenHeadFeature(p,aspect=4/3){
@@ -33,7 +45,10 @@ export function screenHeadFeature(p,aspect=4/3){
  const head={x:p[1].x,y:p[1].y,scale:Math.sqrt(w),roll:Math.atan2(dy,dx),yaw:((nose.x-left.x)*dx+(nose.y-left.y)*dy)/w,pitch:(-(nose.x-left.x)*dy+(nose.y-left.y)*dx)/w};
  return finite(Object.values(head))?head:null;
 }
-export function screenFeature(p, aspect=4/3, imageHeight=720, diagnostics=null) {
+// trust[i]===false marks an eye whose iris is covered by a reflection. Its
+// landmarks are then not read at all: that eye is filled in from the other eye
+// and this person's usual difference between the two, once that is known.
+export function screenFeature(p, aspect=4/3, imageHeight=720, diagnostics=null, agreement=null, trust=[true,true]) {
   const reject=reason=>{if(diagnostics)diagnostics.reason=reason;return null;};
   if(diagnostics){diagnostics.reason='usable';diagnostics.eyePixels=[];diagnostics.openings=[];}
   if (!p || p.length<478 || !finite([aspect,imageHeight]) || aspect<=0 || imageHeight<=0) return reject('no-face');
@@ -59,26 +74,56 @@ export function screenFeature(p, aspect=4/3, imageHeight=720, diagnostics=null) 
     if(x<=.04||x>=.96)return reject('eye-edge');
     return {x,y};
   }
-  const a=eye(33,133,468,159,145),b=eye(362,263,473,386,374);
-  if(!a||!b)return null;
-  if(Math.abs(a.x-b.x)>.20||Math.abs(a.y-b.y)>.12)return reject('disagreement');
+  let a=trust[0]===false?null:eye(33,133,468,159,145),b=trust[1]===false?null:eye(362,263,473,386,374);
+  const hidden=(trust[0]===false)+(trust[1]===false);
+  if(hidden===1){
+   const usual=agreement&&agreement.count>=agreement.settle?agreement:null,seen=a||b;
+   if(!seen)return null;
+   if(!usual)return reject('glare');
+   // The other eye, from this one and the difference to expect where this one is looking
+   // (see BinocularAgreement.expected).
+   const d=usual.expected?usual.expected(a?0:1,seen.x,seen.y):usual;
+   if(a)b={x:a.x-d.dh,y:a.y-d.dv};else a={x:b.x+d.dh,y:b.y+d.dv};
+   if(diagnostics)diagnostics.oneEye=trust[0]===false?'right':'left';
+  }else{
+   if(hidden===2)return reject('glare');
+   if(!a||!b)return null;
+   // With an agreement tracker, compare against this person's usual difference
+   // between the two eyes rather than against zero.
+   if(agreement?!agreement.check(a.x-b.x,a.y-b.y,a,b):Math.abs(a.x-b.x)>.20||Math.abs(a.y-b.y)>.12)return reject('disagreement');
+  }
   const head=screenHeadFeature(p,aspect);if(!head)return reject('landmarks');
   const f={h:(a.x+b.x)/2,v:(a.y+b.y)/2,lh:a.x,lv:a.y,rh:b.x,rv:b.y,...head};
   return finite(Object.values(f))?f:null;
 }
+// How far each eye is open (lid to lid, as a share of the eye's width), added to a reading as
+// `lo` and `ro`. The lids follow the eye up and down, which the iris reading shows only weakly;
+// since 0.4.30 a map can read them beside the iris (see lidOpening and fitJoint).
+// With a reflection over one eye only the other eye is read (see screenFeature): its opening is
+// then the one there is, and travels alone.
+export function withOpenings(feature,diagnostics){
+ const o=diagnostics?.openings;if(!feature||!Array.isArray(o)||!o.every(Number.isFinite))return feature;
+ if(o.length===2){feature.lo=o[0];feature.ro=o[1];}
+ else if(o.length===1&&diagnostics.oneEye)feature[diagnostics.oneEye==='right'?'ro':'lo']=o[0];
+ return feature;
+}
 export function summarize(samples) {
   const usable=samples.filter(validFeature);
   if(usable.length<16||usable.length<samples.length*.8)throw Error('Not enough clear eye samples. Check the light and camera position.');
-  const fields=[...core,...eyes.filter(k=>usable.every(f=>Number.isFinite(f[k]))),...pose.filter(k=>usable.every(f=>Number.isFinite(f[k])))];
-  const center=Object.fromEntries(fields.map(k=>[k,median(usable.map(f=>f[k]))]));
+  // The lid openings travel with the summary: a map that reads them (see lidOpening) must find
+  // them in a dot's summary just as it does in a single frame. An eye hidden by a reflection in
+  // some frames has no opening in those; its opening is that of the frames that have it.
+  const lids=['lo','ro'].filter(k=>usable.filter(f=>Number.isFinite(f[k])).length>=Math.max(8,usable.length/2));
+  const fields=[...core,...eyes.filter(k=>usable.every(f=>Number.isFinite(f[k]))),...pose.filter(k=>usable.every(f=>Number.isFinite(f[k]))),...lids];
+  const center=Object.fromEntries(fields.map(k=>[k,median(usable.map(f=>f[k]).filter(Number.isFinite))]));
   const mad=Object.fromEntries(['h','v'].map(k=>[k,median(usable.map(f=>Math.abs(f[k]-center[k])))]));
   if(mad.h>.025||mad.v>.018)throw Error('Eye samples moved too much. Please try that point again.');
-  const headFields=fields.filter(k=>!['h','v',...eyes].includes(k));
-  const floors={x:.003,y:.003,scale:.005,roll:.015,yaw:.01,pitch:.01};
+  const headFields=fields.filter(k=>!['h','v',...eyes,...lids].includes(k));
+  const zoom=poseZoom(center.scale),floors={x:.003*zoom,y:.003*zoom,scale:.005,roll:.015,yaw:.01,pitch:.01};
   const headSpread=Object.fromEntries(headFields.map(k=>[k,Math.max(floors[k],4*median(usable.map(f=>Math.abs(f[k]-center[k]))))]));
   const kept=usable.filter(f=>Math.abs(f.h-center.h)<=Math.max(.0015,4*mad.h)&&Math.abs(f.v-center.v)<=Math.max(.001,4*mad.v)&&headFields.every(k=>Math.abs(f[k]-center[k])<=headSpread[k]));
   if(kept.length<16||kept.length<usable.length*.7)throw Error('Eye samples were inconsistent. Please try that point again.');
-  return Object.fromEntries(fields.map(k=>[k,median(kept.map(f=>f[k]))]));
+  return Object.fromEntries(fields.map(k=>[k,median(kept.map(f=>f[k]).filter(Number.isFinite))]).filter(([,v])=>Number.isFinite(v)));
 }
 export function settledSummary(samples){
  const summary=summarize(samples),usable=samples.filter(validFeature),half=Math.floor(usable.length/2);
@@ -86,7 +131,8 @@ export function settledSummary(samples){
   if(Math.abs(median(usable.slice(0,half).map(f=>f[key]))-median(usable.slice(half).map(f=>f[key])))>limit)
    throw Error('Your gaze is still settling. Keep looking at this dot.');
  }
- for(const [key,limit] of [['x',.0125],['y',.0125],['roll',.03],['yaw',.025],['pitch',.025]]){
+ const zoom=poseZoom(summary.scale);
+ for(const [key,limit] of [['x',.0125*zoom],['y',.0125*zoom],['roll',.03],['yaw',.025],['pitch',.025]]){
   if(usable.every(f=>Number.isFinite(f[key]))&&Math.abs(median(usable.slice(0,half).map(f=>f[key]))-median(usable.slice(half).map(f=>f[key])))>limit)
    throw Error('Your head is still moving. Keep a comfortable position while this dot is measured.');
  }
@@ -131,7 +177,7 @@ export function horizontalAccuracy(perTarget){
    usable:items.length?Math.round(items.reduce((s,p)=>s+p.validFraction,0)/items.length*100):0};
  };
  const left=side(perTarget.filter(p=>p.x<.45)),right=side(perTarget.filter(p=>p.x>.55));
- const text=`Screen sides Â· average per-target 90% error: left ${left.p90Pixels??'unavailable'} px / right ${right.p90Pixels??'unavailable'} px. Usable: ${left.usable}% / ${right.usable}%.`;
+ const text=`Screen sides · average per-target 90% error: left ${left.p90Pixels??'unavailable'} px / right ${right.p90Pixels??'unavailable'} px. Usable: ${left.usable}% / ${right.usable}%.`;
  return {left,right};
 }
 
@@ -182,15 +228,159 @@ function fit(rows,degree,leftWeight,lambda,motion=false){
   // Give each target the same total weight regardless of its frame count.
   const observations=rows.flatMap(g=>{
    const samples=g.samples.filter(f=>Math.abs(f.h-g.feature.h)<.05&&Math.abs(f.v-g.feature.v)<.035);
-   return samples.map(f=>({feature:f,target:g.target,weight:rowWeight(g,rows)/samples.length}));
+   // Worked out once per dot, not once per frame: with 45 frames a dot this
+   // lookup made up most of a 15-second wait after calibration.
+   const weight=rowWeight(g,rows)/samples.length;
+   return samples.map(f=>({feature:f,target:g.target,weight}));
   });
   const b=observations.map(g=>basis(g.feature,model)),n=b[0].length,weights=observations.map(g=>g.weight);
   const a=Array.from({length:n},(_,i)=>Array.from({length:n},(_,j)=>b.reduce((s,r,k)=>s+weights[k]*r[i]*r[j],0)+(i===j&&i!==0?lambda:0)));
   model.weights=[0,1].map(axis=>solve(a,Array.from({length:n},(_,i)=>b.reduce((s,r,j)=>s+weights[j]*r[i]*observations[j].target[axis],0))));
   return model;
 }
+// A map that also uses where the head is: screen position = map(eyes) + C . (head - reference).
+// The eye part and C are fitted together. Calibration dots alone say little about C: a person
+// turns the head a little towards each dot, so head and gaze move together and cannot be told
+// apart. Frames from the head-movement step (`moved`: one dot held while the head moves) do tell
+// them apart, because there the gaze stays and only the head changes.
+export const MOVED_DOT_WEIGHT=2; // One head-movement dot counts like two calibration dots.
+export function fitHeadAware(rows,degree,leftWeight,lambda,headLambda,moved=[]){
+ return fitJoint(rows,degree,leftWeight,lambda,{head:{lambda:headLambda,moved}});
+}
+// How far the eyes are open: lid to lid as a share of the eye's width, the two eyes averaged.
+// The lids follow the eye up and down. The iris reading shows the same movement only weakly: over
+// the height of the screen it changes by about .05 of the eye's width against a frame-to-frame
+// scatter of .005 or more, while the opening changes by about .12.
+// With a reflection over one eye only the other one is read. Its opening and this person's usual
+// difference between the two (`between`: first minus second, measured at the calibration dots and
+// kept in a map that reads the lids) give the same measure: on four recorded sessions that
+// difference varied by .02 to .03 from dot to dot, against .12 to .14 between the top and the
+// bottom of the screen, and the opening filled in this way was off by .002 to .003 (median;
+// under .008 in nine frames of ten).
+export function lidOpening(f,between=null){
+ const a=f?.lo,b=f?.ro,first=Number.isFinite(a)&&a>0,second=Number.isFinite(b)&&b>0;
+ if(first&&second)return (a+b)/2;
+ if(!Number.isFinite(between)||!first&&!second)return NaN;
+ return first?a-between/2:b+between/2;
+}
+// Frames with both openings needed before their usual difference is taken as known.
+export const LID_PAIRS=50;
+// A map with optional extra inputs beside the iris readings, all fitted together:
+//   head: screen position = map(eyes) + C . (head - reference)        (see fitHeadAware)
+//   lid:  screen position = map(eyes) + L . (opening - reference)     (see lidOpening)
+export function fitJoint(rows,degree,leftWeight,lambda,{motion=false,head=null,lid=null}={}){
+ const model=fit(rows,degree,leftWeight,lambda,motion),moved=head?.moved||[],all=[...rows,...moved];
+ const indices=head?POSE_FIELDS.flatMap((key,i)=>all.every(g=>g.samples.every(f=>Number.isFinite(f[key])))?[i]:[]):[];
+ if(head&&indices.length<4)throw Error('Head readings are incomplete.');
+ const reference=indices.map(i=>median(rows.map(g=>g.feature[POSE_FIELDS[i]]))),terms={indices,reference};
+ const delta=f=>indices.map((index,i)=>(f[POSE_FIELDS[index]]-reference[i])/POSE_SCALES[index]);
+ // The opening at each dot is the median of its frames; a frame far from it is a blink on its way.
+ let lidTerms=null,lidAt=null,open=lidOpening;
+ if(lid){
+  const pairs=rows.flatMap(g=>g.samples).filter(f=>Number.isFinite(f.lo)&&Number.isFinite(f.ro)&&f.lo>0&&f.ro>0).map(f=>f.lo-f.ro);
+  const between=pairs.length>=LID_PAIRS?median(pairs):null;
+  open=f=>lidOpening(f,between);
+  // Every dot needs its opening. (Until 0.4.31 a dot also needed the reading in four fifths of its
+  // frames, and a frame with a reflection over one eye had none: two such dots in the bottom row
+  // switched the whole input off on 20 Nov.)
+  lidAt=new Map(rows.map(g=>{const v=g.samples.map(open).filter(Number.isFinite);return [g,v.length>=16?median(v):NaN];}));
+  const centers=[...lidAt.values()];
+  if(!centers.every(Number.isFinite))throw Error('Eyelid readings are incomplete.');
+  const lo=Math.min(...centers),hi=Math.max(...centers);
+  if(hi-lo<LID_SPAN)throw Error('The eyelids hardly move with the gaze.');
+  lidTerms={reference:median(centers),scale:(hi-lo)/2,...(between===null?{}:{between})};
+ }
+ const lidDelta=f=>(open(f)-lidTerms.reference)/lidTerms.scale;
+ let observations=rows.flatMap(g=>{
+  let samples=g.samples.filter(f=>Math.abs(f.h-g.feature.h)<.05&&Math.abs(f.v-g.feature.v)<.035);
+  if(lid)samples=samples.filter(f=>Math.abs(open(f)-lidAt.get(g))<=LID_BLINK);
+  if(!samples.length)throw Error('Eyelid readings are incomplete.');
+  const weight=rowWeight(g,rows)/samples.length;
+  return samples.map(f=>({feature:f,target:g.target,weight,moved:false}));
+ });
+ const steady=observations.length;
+ for(const g of moved){
+  const samples=lid?g.samples.filter(f=>Number.isFinite(open(f))):g.samples;
+  for(const f of samples)observations.push({feature:f,target:g.target,weight:MOVED_DOT_WEIGHT/samples.length,moved:true});
+ }
+ const ne=degree===1?3:6,nh=indices.length,n=ne+nh+(lid?1:0);
+ const columns=f=>{const b=[...basis(f,model),...delta(f)];if(lid)b.push(lidDelta(f));return b;};
+ const solveAll=obs=>{
+  const v=obs.map(o=>columns(o.feature));
+  const a=Array.from({length:n},(_,i)=>Array.from({length:n},(_,j)=>v.reduce((s,r,k)=>s+obs[k].weight*r[i]*r[j],0)+(i===j&&i!==0?(i<ne?lambda:i<ne+nh?head.lambda:lid.lambda):0)));
+  return [0,1].map(axis=>solve(a,Array.from({length:n},(_,i)=>v.reduce((s,r,k)=>s+obs[k].weight*r[i]*obs[k].target[axis],0))));
+ };
+ let w=solveAll(observations);
+ // While the head moves, some frames are blurred or the eyes leave the dot for a moment.
+ // Drop the head-movement frames that the first fit places far from their dot, and fit again.
+ if(observations.length>steady){
+  const error=o=>{const b=columns(o.feature);return Math.hypot(...[0,1].map(axis=>w[axis].reduce((s,c,i)=>s+c*b[i],0)-o.target[axis]));};
+  const errors=observations.slice(steady).map(error),limit=Math.max(.06,3*quantile(errors,.5));
+  const kept=observations.filter((o,i)=>i<steady||errors[i-steady]<=limit);
+  if(kept.length<observations.length&&kept.length-steady>=.6*(observations.length-steady)){w=solveAll(kept);observations=kept;}
+ }
+ model.weights=w.map(r=>r.slice(0,ne));
+ if(head){
+  const limits=indices.map(index=>{const v=observations.map(o=>o.feature[POSE_FIELDS[index]]),lo=Math.min(...v),hi=Math.max(...v),span=Math.max(hi-lo,1e-6);return [lo-.5*span,hi+.5*span];});
+  model.headTerms={...terms,limits,weights:w.map(r=>r.slice(ne,ne+nh))};
+  model.headLambda=head.lambda;
+ }
+ if(lid){
+  // Used only within the openings seen at the calibration dots (a tenth wider each way). The dots
+  // reach nearly to the screen edges, so nothing on the screen needs more; and lids half shut on
+  // their way into or out of a blink lie below that range and must not carry the pointer on down.
+  const centers=[...lidAt.values()],lo=Math.min(...centers),hi=Math.max(...centers),span=hi-lo;
+  model.lidTerms={...lidTerms,limits:[lo-.1*span,hi+.1*span],weights:w.map(r=>r[n-1])};
+  model.lidLambda=lid.lambda;
+ }
+ return model;
+}
+// Between the highest and the lowest calibration dots the opening must change by at least this
+// much (a share of the eye's width), or it says nothing about where the gaze is.
+export const LID_SPAN=.04;
+// The eyelid input on the two recorded sessions that have the readings (20 Nov, telephoto lens),
+// frame by frame, map of the iris readings alone -> the same map with the opening beside them:
+//   error on calibration dots left out:  11.7% -> 9.2% and 11.9% -> 8.3% of the screen
+//   five accuracy checks, average:       265 -> 223, 119 -> 105, 112 -> 84, 153 -> 109, 132 -> 112 px
+//   up/down reach in those checks:       394 -> 273, 212 -> 152, 139 -> 100, 228 -> 152, 198 -> 140 px
+//   up/down scatter while a dot is held: lower in all five (63 -> 34 px in the clearest case)
+// It also helps left/right a little (the opening is a steadier measure of height than the iris
+// reading, and the sideways estimate depends on height too), so it enters both. Strengths from
+// .002 to .2 gave the same results; one input, one strength, nothing tuned to the checks.
+// What it does not do: stop the estimates from shifting up or down as a whole after calibration.
+// Both maps did that in those sessions (by 30 to 110 px within 80 s), at different moments. With
+// each measurement's own shared shift taken out, the map with the lids was better on all six later
+// measurements (by 15 to 28%); with the shift of the measurement before taken out, on five, and
+// level on one. Replayed through the app's own steps on the second evening (check, shift
+// correction, check, Refine accuracy, check), the checks read 119, 105, 81 px without the lids
+// and 90, 109, 67 px with them: there the plain map's shift was already present at the first check
+// and corrected at once, the other map's came later and was corrected by the Refine step.
+// Tying the lid baseline slowly to the iris reading was tried and made things worse: in that
+// session it was the iris reading that had shifted, not the lids.
+export const LID_RIDGE=.02;
+// It is used when the dots left out are placed at least 5% better, most of them are placed better,
+// and the worst of them is placed no worse.
+export const LID_ADVANTAGE=.95;
+// A frame whose opening is this far from its dot's usual opening is left out of the fit.
+export const LID_BLINK=.05;
+function lidShift(f,t){
+ const opening=lidOpening(f,t.between);
+ // No reading of either eye's lids in this frame: the map answers as if they were where they usually are.
+ if(!Number.isFinite(opening))return [0,0];
+ const d=(Math.max(t.limits[0],Math.min(t.limits[1],opening))-t.reference)/t.scale;
+ return t.weights.map(w=>w*d);
+}
+// The head part of a head-aware map. Each head reading is used only within the span it was fitted
+// on (widened by half that span on each side): beyond it the map knows nothing, and a straight
+// line continued far past its data could move the pointer a long way.
+function headShift(f,t){
+ const delta=t.indices.map((index,i)=>{let v=f[POSE_FIELDS[index]];if(t.limits)v=Math.max(t.limits[i][0],Math.min(t.limits[i][1],v));return (v-t.reference[i])/POSE_SCALES[index];});
+ return t.weights.map(w=>w.reduce((sum,v,i)=>sum+v*delta[i],0));
+}
 function estimate(f,m){
  const b=basis(f,m);let xy=m.weights.map(w=>w.reduce((s,v,i)=>s+v*b[i],0));
+ if(m.headTerms){const shift=headShift(f,m.headTerms);xy=xy.map((v,i)=>v+shift[i]);}
+ if(m.lidTerms){const shift=lidShift(f,m.lidTerms);xy=xy.map((v,i)=>v+shift[i]);}
  if(m.alignment)xy=m.alignment.weights.map(w=>w[0]+w[1]*xy[0]+w[2]*xy[1]);
  if(m.refinement)xy=regionalEstimate(xy,m.refinement);
  if(m.offset)xy=xy.map((v,i)=>v+m.offset[i]);
@@ -307,7 +497,92 @@ function summarizeForBank(samples){
  const fields=[...core,...eyes.filter(k=>samples.every(f=>Number.isFinite(f[k]))),...pose.filter(k=>samples.every(f=>Number.isFinite(f[k])))];
  return Object.fromEntries(fields.map(k=>[k,median(samples.map(f=>f[k]))]));
 }
-export function fitCalibration(groups){
+// A frame can carry a second reading of the same eyes: the iris located in the
+// camera's own pixels instead of the eye model's small copy (feature.alt).
+// Which reading is steadier depends on the person, the camera and the light,
+// so calibration fits both and keeps the one that predicts held-out screen
+// locations better. The saved map remembers which reading it was fitted to.
+const DETAIL_KEYS=['h','v','lh','lv','rh','rv'];
+export function detailFeature(f){
+ if(!f?.alt||!DETAIL_KEYS.every(k=>Number.isFinite(f.alt[k])))return null;
+ const {alt,...rest}=f;return {...rest,...alt};
+}
+// Whether a map was fitted to the camera-pixel reading. Saved maps may hold
+// numbers and true/false only (the companion refuses anything else), so this is
+// a flag. 0.4.18 wrote it as text, which the companion could not save; that
+// form is still read.
+export const readsIrisPixels=m=>m?.irisPixels===true||m?.signal==='detail';
+// The reading a given map expects from a frame, or null when the frame lacks it.
+export function signalFeature(f,m){
+ if(!f)return null;
+ if(readsIrisPixels(m))return detailFeature(f);
+ if(f.alt){const {alt,...rest}=f;return rest;}
+ return f;
+}
+export const REGIONAL_ADVANTAGE=.97; // Regional correction must score at least 3% better.
+export const DETAIL_ADVANTAGE=.93; // Camera-pixel reading must be at least 7% better.
+// `lids:false` leaves the eyelid input out (a setting, for comparing with and without it).
+export function fitCalibration(groups,{signal=null,moved=[],lids=true}={}){
+ if(signal==='plain')return fitSignal(groups,moved,lids);
+ // Only frames with both readings can be compared like for like.
+ const complete=groups.length>0&&groups.every(g=>{const valid=g.samples.filter(validFeature);return valid.length>=16&&valid.filter(f=>detailFeature(f)).length>=valid.length*.9;});
+ const detailed=()=>{const m=fitSignal(groups.map(g=>({...g,samples:g.samples.map(detailFeature).filter(Boolean)})),moved.map(g=>({...g,samples:g.samples.map(detailFeature).filter(Boolean)})),lids);m.irisPixels=true;return m;};
+ if(signal==='detail'){
+  if(!complete)throw calibrationError('The iris edge was not clear enough at every point. Check the light and glasses reflections, then retry.',{reason:'samples',pointIndices:[]});
+  return detailed();
+ }
+ let plain=null,detail=null,plainError=null;
+ try{plain=fitSignal(groups,moved,lids);}catch(e){plainError=e;}
+ if(complete)try{detail=detailed();}catch{/* The model reading stands alone. */}
+ if(!plain&&!detail)throw plainError;
+ const chosen=detail&&(!plain||detail.crossValidation<=plain.crossValidation*DETAIL_ADVANTAGE)?detail:plain;
+ if(plain&&detail)chosen.signalComparison={plain:plain.crossValidation,detail:detail.crossValidation};
+ return chosen;
+}
+// The head-aware map (see fitHeadAware). Settings found on recorded sessions: fitted to the
+// calibration dots alone, with a curved eye part and these two strengths, it had 8 to 40% lower
+// error than the map in use on every recorded accuracy check (six checks, four sessions, two
+// lenses), and neighbouring settings did nearly as well. The settings were chosen on those same
+// checks, so that is how well they can fit, not a forecast.
+export const HEAD_DEGREE=2,HEAD_LAMBDA=.02,HEAD_RIDGE=.02;
+export const HEAD_ADVANTAGE=.97;  // Fitted to the still calibration alone: at least 3% better with dots left out.
+export const MOVED_ADVANTAGE=.85; // Fitted with head-movement frames: at least 15% better on such frames it was not fitted to.
+export const STILL_TOLERANCE=1.15; // Fitted to the still calibration alone: at most 15% worse on head-movement frames.
+// Head-movement frames count as evidence only if at least one map places them near their dots
+// (within 15% of the screen for three quarters of the frames; an accuracy check allows a dot that
+// much). If none does, the eyes left the dot or tracking was poor, and the frames show nothing
+// either way.
+export const MOVED_USABLE=.15;
+export const MOVE_TARGETS=[[.5,.4],[.3,.62],[.7,.62]];
+// How far the head moved while one dot was held, per head reading, as a share of that reading's scale.
+export function headRange(samples){
+ return POSE_FIELDS.map((key,i)=>{const v=samples.map(f=>f[key]).filter(Number.isFinite);return v.length?(quantile(v,.9)-quantile(v,.1))/POSE_SCALES[i]:0;});
+}
+export const MOVED_ENOUGH=.2; // A fifth of a reading's scale: about four times what a head held still shows.
+// A head held still, but away from where it was during calibration, shows as much as a head that
+// moves: the first recorded session with this step had a dot held like that, and without it the
+// other two dots could not be checked against each other. It counts when the head is at least
+// this far from the calibration pose (in units of the pause limits; ordinary settling of the
+// posture during a calibration stays under about 0.5).
+export const MOVED_AWAY=.75;
+// Frames with the head further than this from the calibration pose are left out (twice the pause
+// limit). Out there the pointer is paused anyway, and the head's effect on the readings stops
+// being proportional. In the same session, leaving them out put the frames of a left-out dot
+// 11% of the screen from their dot instead of 15%.
+export const MOVED_FAR=2;
+// The head-movement dots that can be used: enough clear frames within reach of the calibration
+// pose (`head`, when known), and the head really moved or was held away from that pose.
+export function movedRows(moved,head=null){
+ return (moved||[]).flatMap(g=>{
+  if(!Array.isArray(g?.target)||g.target.length!==2||!finite(g.target))return [];
+  const clear=(g.samples||[]).filter(f=>validFeature(f)&&POSE_FIELDS.every(k=>Number.isFinite(f[k])));
+  const samples=head?clear.filter(f=>headReach(f,head)<=MOVED_FAR):clear;
+  if(samples.length<40)return [];
+  const range=headRange(samples),away=head?median(samples.map(f=>headReach(f,head))):0;
+  return Math.max(...range)>=MOVED_ENOUGH||away>=MOVED_AWAY?[{target:g.target,feature:summarizeForBank(samples),samples,range,away,far:clear.length-samples.length}]:[];
+ });
+}
+function fitSignal(groups,moved=[],lids=true){
   if(groups.length<13||new Set(groups.map(targetKey)).size<13)throw Error('Complete all calibration points, covering at least thirteen different locations.');
   const rows=groups.map((g,i)=>{try{return {target:g.target,feature:summarize(g.samples),samples:g.samples.filter(validFeature)};}catch(e){throw calibrationError(e.message,{reason:'samples',pointIndices:[i]});}}),candidates=[];
   try{fit(rows,1,.5,.02);}catch(e){throw calibrationError(e.message,{reason:'range',pointIndices:[1,5,3,7]});}
@@ -334,18 +609,108 @@ export function fitCalibration(groups){
   const eligible=candidates.filter(c=>c.score<=best.score*1.08+.001);
   eligible.sort((a,b)=>Number(a.rich)-Number(b.rich)||Number(a.motion)-Number(b.motion)||a.degree-b.degree||Math.abs(a.leftWeight-.5)-Math.abs(b.leftWeight-.5)||a.score-b.score);
   let selected=eligible[0];
+  // The head-aware map (see fitHeadAware). It is judged on two things: dots left out of the
+  // calibration (looks made with the head as it was), and frames from the head-movement step
+  // (one dot held while the head moves). Without head-movement frames it is not used at all:
+  // during calibration the head follows the dots, and a map can then lean on the head in place
+  // of the eyes, which fails as soon as the head stops following.
+  const headReport={dots:0,frames:0,used:false,withMovement:false,plainScore:selected.score};
+  const eyesOnly=selected;
+  {
+   // Where the head was during calibration: the pose of the plain map.
+   let plainMap=null;try{plainMap=selected.factory(rows);}catch{}
+   const extra=movedRows(moved,plainMap?.head||null),settings={headAware:true,degree:HEAD_DEGREE,leftWeight:.5,lambda:HEAD_LAMBDA,motion:false,rich:false};
+   headReport.far=extra.reduce((sum,g)=>sum+(g.far||0),0);
+   const build=more=>r=>fitHeadAware(r,HEAD_DEGREE,.5,HEAD_LAMBDA,HEAD_RIDGE,more);
+   const add=more=>{const count=candidates.length;scoreCandidate(build(more),{...settings,movement:more.length>0});return candidates.length>count?candidates[candidates.length-1]:null;};
+   const still=add([]);if(still)headReport.stillScore=still.score;
+   if(extra.length>=2){
+    headReport.dots=extra.length;headReport.frames=extra.reduce((sum,g)=>sum+g.samples.length,0);
+    headReport.range=POSE_FIELDS.map((_,i)=>Math.max(...extra.map(g=>g.range[i])));
+    headReport.away=Math.max(...extra.map(g=>g.away));
+    // Error on the head-movement frames: per dot the 75th percentile, then the average over dots.
+    // Only frames with the head inside the limits count: outside them the pointer is paused anyway,
+    // so what a map would say there does not matter. (A dot with few such frames counts in full.)
+    let inside=extra.map(g=>g.samples);
+    const onMoved=modelFor=>{
+     const errors=extra.map((g,k)=>{const m=modelFor(k);return quantile(inside[k].map(f=>{const p=estimate(f,m);return Math.hypot(p.x-g.target[0],p.y-g.target[1]);}),.75);});
+     return errors.reduce((sum,e)=>sum+e,0)/errors.length;
+    };
+    const ok=v=>Number.isFinite(v)&&v>0;
+    try{
+     const m=plainMap||selected.factory(rows);
+     inside=extra.map(g=>{const within=g.samples.filter(f=>headMatches(f,m));return within.length>=20?within:g.samples;});
+     headReport.framesInside=inside.reduce((sum,a)=>sum+a.length,0);
+     headReport.plainMoved=onMoved(()=>m);
+    }catch{}
+    if(still)try{const m=still.factory(rows);headReport.stillMoved=onMoved(()=>m);}catch{}
+    const moving=add(extra);
+    // Each head-movement dot is predicted by a map that never saw that dot's frames.
+    if(moving)try{headReport.movingScore=moving.score;headReport.movingMoved=onMoved(k=>fitHeadAware(rows,HEAD_DEGREE,.5,HEAD_LAMBDA,HEAD_RIDGE,extra.filter((_,i)=>i!==k)));}catch{}
+    // Two head-aware maps are candidates. One is fitted with the head-movement frames: it must be
+    // clearly better than the plain map while the head moves and no worse with the head still.
+    // The other is fitted to the still calibration alone: it must be better with the head still
+    // (dots left out), may be a little worse while the head moves on purpose (which is rarer in use
+    // than in this step), and must be better on the two counts taken together. If both manage
+    // that, the better one overall is taken; if neither does, the plain map stays.
+    const able=[],clearest=Math.min(...[headReport.plainMoved,headReport.stillMoved,headReport.movingMoved].filter(ok));
+    if(!(clearest<=MOVED_USABLE))headReport.unclear=true;
+    else if(ok(headReport.plainMoved)){
+     const merit=(c,movedError)=>c.score/selected.score*movedError/headReport.plainMoved;
+     if(moving&&ok(headReport.movingMoved)&&headReport.movingMoved<=headReport.plainMoved*MOVED_ADVANTAGE&&moving.score<=selected.score*1.03+.001)able.push({candidate:moving,merit:merit(moving,headReport.movingMoved),withMovement:true});
+     if(still&&ok(headReport.stillMoved)&&still.score<=selected.score*HEAD_ADVANTAGE&&still.score+.002<=selected.score&&headReport.stillMoved<=headReport.plainMoved*STILL_TOLERANCE&&merit(still,headReport.stillMoved)<=HEAD_ADVANTAGE)able.push({candidate:still,merit:merit(still,headReport.stillMoved),withMovement:false});
+    }
+    able.sort((a,b)=>a.merit-b.merit);
+    if(able.length){selected=able[0].candidate;headReport.used=true;headReport.withMovement=able[0].withMovement;}
+   }
+  }
+  // The eyelid input (see lidOpening), added to the map of the iris readings and fitted together
+  // with it. Judged like every other choice here, on dots left out of the fit, and against
+  // whichever map stands at this point: if that is a map using head position, the eyelid map has
+  // to beat it. The two are not combined yet: both lean on how the eye sits in the head, the one
+  // recording that could show them together was made with the head far out of place, and there
+  // they did no better together than the head map alone.
+  const lidReport={used:false,withoutScore:selected.score};
+  if(!lids)lidReport.off=true;
+  else if(!eyesOnly.rich){
+   const s=eyesOnly,count=candidates.length;
+   scoreCandidate(r=>fitJoint(r,s.degree,s.leftWeight,s.lambda,{motion:!!s.motion,lid:{lambda:LID_RIDGE}}),{degree:s.degree,leftWeight:s.leftWeight,lambda:s.lambda,motion:!!s.motion,rich:false,lid:true});
+   const lid=candidates.length>count?candidates[candidates.length-1]:null;
+   if(lid){
+    lidReport.score=lid.score;lidReport.better=lid.errors.filter((e,i)=>e<selected.errors[i]).length/lid.errors.length;
+    if(lid.score<=selected.score*LID_ADVANTAGE&&lid.score+.002<=selected.score&&lidReport.better>=.55&&lid.worst<=selected.worst){
+     // A head map that was chosen a moment ago gives way.
+     if(headReport.used){headReport.used=false;headReport.withMovement=false;headReport.setAside=true;}
+     selected=lid;lidReport.used=true;
+    }
+   }else lidReport.unavailable=true;
+  }
   // Dense calibrations can reveal curvature a single global map misses.
   // Refit BOTH the base map and residual correction without each held-out
   // location; fitting the base on all locations here would leak test targets.
   if(keys.length>=20){
    const baseFactory=selected.factory;
-   for(const radius of [.35,.65])for(const lambda of [.03,.2])scoreCandidate(r=>fitRegional(r,baseFactory(r),radius,lambda),{regional:true});
+   for(const radius of [.35,.65])for(const lambda of [.03,.2,1])scoreCandidate(r=>fitRegional(r,baseFactory(r),radius,lambda),{regional:true});
    const regional=candidates.filter(c=>c.regional).sort((a,b)=>a.score-b.score)[0];
-   if(regional&&regional.score+.002<selected.score*.9&&regional.worst<=selected.worst)selected=regional;
+   // The correction used to need a 10% better left-out score. A recorded
+   // session showed why that was too strict: with one dot left out, an edge or
+   // corner dot has to be predicted from one side only, which hides most of
+   // what a regional correction gains inside the screen. There, a correction
+   // scoring only 4% better cut the error of two later accuracy checks by a
+   // third (86 -> 56 px and 93 -> 66 px), and every stable variant beat every
+   // uncorrected map on both checks. It must still score better with dots left
+   // out, be better on most of those dots rather than on a few (which is what
+   // fitting chance looks like), and must not make the worst left-out dot worse.
+   const wins=regional?regional.errors.filter((e,i)=>e<selected.errors[i]).length/regional.errors.length:0;
+   // The gain must also be worth having in absolute terms (.002 of the screen
+   // is about 3 px), or a map that is already exact could be 'improved' by rounding.
+   if(regional&&regional.score<=selected.score*REGIONAL_ADVANTAGE&&regional.score+.002<=selected.score&&wins>=.55&&regional.worst<=selected.worst)selected=regional;
   }
   const model=selected.factory(rows);
   model.crossValidation=selected.score;
-  model.baselineError=candidates.find(c=>!c.motion&&!c.rich)?.score??selected.score;
+  model.baselineError=candidates.find(c=>!c.motion&&!c.rich&&!c.headAware&&!c.regional&&!c.lid)?.score??selected.score;
+  model.headStep=headReport;
+  model.lidStep=lidReport;
   model.trainingReliable=selected.score<=.10&&selected.worst<=.22;
   model.trainingHeadMismatches=rows.filter(g=>!headMatches(g.feature,model)).length;
   const centers=rows.filter(g=>Math.abs(g.target[0]-.5)<.001&&Math.abs(g.target[1]-.5)<.001).map(g=>estimate(g.feature,model));
@@ -362,22 +727,132 @@ export function validModel(m){
   const richValid=m?.version!==4||(m.binocular===true&&m.degree===1&&Array.isArray(m.featureIndices)&&m.featureIndices.length>=4&&m.featureIndices.length<=10&&m.featureIndices.slice(0,4).every((v,i)=>v===i)&&new Set(m.featureIndices).size===m.featureIndices.length&&m.featureIndices.every(i=>Number.isInteger(i)&&i>=0&&i<10)&&['featureCenters','featureScales'].every(k=>Array.isArray(m[k])&&m[k].length===m.featureIndices.length&&finite(m[k]))&&m.featureScales.every(v=>v>0));
   const alignmentValid=!m?.alignment||(Array.isArray(m.alignment.weights)&&m.alignment.weights.length===2&&m.alignment.weights.every(w=>Array.isArray(w)&&w.length===3&&finite(w))&&!!m.alignment.sourceHead&&core.slice(2).every(k=>Number.isFinite(m.alignment.sourceHead[k]))&&m.alignment.sourceHead.scale>0);
   const r=m?.refinement,refinementValid=!r||(Array.isArray(r.centers)&&r.centers.length>=8&&r.centers.length<=25&&r.centers.every(c=>Array.isArray(c)&&c.length===2&&finite(c)&&c.every(v=>Math.abs(v)<5))&&Number.isFinite(r.radius)&&r.radius>=.2&&r.radius<=1&&Number.isFinite(r.lambda)&&r.lambda>=.01&&Array.isArray(r.weights)&&r.weights.length===2&&r.weights.every(w=>Array.isArray(w)&&w.length===r.centers.length&&finite(w)&&w.every(v=>Math.abs(v)<=2)));
+  const t=m?.headTerms,headTermsValid=!t||(m.version===2&&Array.isArray(t.indices)&&t.indices.length>=4&&t.indices.length<=6&&new Set(t.indices).size===t.indices.length&&t.indices.every(i=>Number.isInteger(i)&&i>=0&&i<6)&&Array.isArray(t.reference)&&t.reference.length===t.indices.length&&finite(t.reference)&&(t.limits===undefined||Array.isArray(t.limits)&&t.limits.length===t.indices.length&&t.limits.every(l=>Array.isArray(l)&&l.length===2&&finite(l)&&l[0]<l[1]))&&Array.isArray(t.weights)&&t.weights.length===2&&t.weights.every(w=>Array.isArray(w)&&w.length===t.indices.length&&finite(w)&&w.every(v=>Math.abs(v)<=5)));
+  const l=m?.lidTerms,lidTermsValid=!l||([2,3].includes(m.version)&&finite([l.reference,l.scale])&&l.scale>0&&Array.isArray(l.limits)&&l.limits.length===2&&finite(l.limits)&&l.limits[0]<l.limits[1]&&Array.isArray(l.weights)&&l.weights.length===2&&finite(l.weights)&&l.weights.every(v=>Math.abs(v)<=5)&&(l.between===undefined||Number.isFinite(l.between)&&Math.abs(l.between)<=.3));
   const offsetValid=!m?.offset||(Array.isArray(m.offset)&&m.offset.length===2&&finite(m.offset)&&m.offset.every(v=>Math.abs(v)<=.3));
   const anchorsValid=m?.anchors===undefined||(Array.isArray(m.anchors)&&m.anchors.length>=5&&m.anchors.length<=27&&m.anchors.every(g=>validFeature(g?.feature)&&Array.isArray(g.target)&&g.target.length===2&&finite(g.target)&&g.target.every(v=>v>=0&&v<=1)));
-  return [2,3,4].includes(m?.version)&&correctionValid&&richValid&&alignmentValid&&refinementValid&&offsetValid&&anchorsValid&&[1,2].includes(m.degree)&&[.25,.5,.75].includes(m.leftWeight)&&typeof m.binocular==='boolean'&&
+  return [2,3,4].includes(m?.version)&&(m.signal===undefined||m.signal==='detail')&&(m.irisPixels===undefined||m.irisPixels===true)&&correctionValid&&richValid&&headTermsValid&&lidTermsValid&&alignmentValid&&refinementValid&&offsetValid&&anchorsValid&&[1,2].includes(m.degree)&&[.25,.5,.75].includes(m.leftWeight)&&typeof m.binocular==='boolean'&&
     Array.isArray(m.center)&&m.center.length===2&&finite(m.center)&&Array.isArray(m.spread)&&m.spread.length===2&&finite(m.spread)&&m.spread.every(x=>x>0)&&
     Array.isArray(m.weights)&&m.weights.length===2&&m.weights.every(r=>Array.isArray(r)&&r.length===(m.version===4?m.featureIndices.length+1:m.degree===1?3:6)&&finite(r))&&
     !!m.head&&core.slice(2).every(k=>Number.isFinite(m.head[k]))&&m.head.scale>0&&pose.every(k=>m.head[k]===undefined||Number.isFinite(m.head[k]));
 }
+// How far the head is from where a map was calibrated, per head reading, in
+// units of that reading's limit: at 1 (either way) selection pauses. Signed, so
+// that a guide can say which way to move. Null when the head cannot be read.
+export function headOffsets(f,head){
+ if(!f||!head||!['x','y','scale','roll'].every(k=>Number.isFinite(f[k]))||!(f.scale>0)||!(head.scale>0))return null;
+ const limit=.05*poseZoom(head.scale),offsets={x:(f.x-head.x)/limit,y:(f.y-head.y)/limit,scale:(f.scale/head.scale-1)/.18,roll:(f.roll-head.roll)/.12};
+ for(const key of pose)if(head[key]!==undefined)offsets[key]=(f[key]-head[key])/.07;
+ return offsets;
+}
+// The largest of them, whichever way: under 1 the head is inside the limits.
+export function headReach(f,head){const o=headOffsets(f,head);return o?Math.max(...Object.values(o).map(v=>Number.isFinite(v)?Math.abs(v):Infinity)):Infinity;}
 export function headRejections(f,m){
  if(!validFeature(f)||!m?.head)return ['unavailable'];
- const differences={x:Math.abs(f.x-m.head.x)/.05,y:Math.abs(f.y-m.head.y)/.05,scale:Math.abs(f.scale/m.head.scale-1)/.18,roll:Math.abs(f.roll-m.head.roll)/.12};
- for(const key of pose)if(m.head[key]!==undefined)differences[key]=Math.abs(f[key]-m.head[key])/.07;
- return Object.entries(differences).filter(([,v])=>!Number.isFinite(v)||v>=1).map(([key])=>key);
+ return Object.entries(headOffsets(f,m.head)).filter(([,v])=>!Number.isFinite(v)||Math.abs(v)>=1).map(([key])=>key);
 }
 export function headMatches(f,m){return headRejections(f,m).length===0;}
 export function predict(f,m){
  return predictDetailed(f,m).point;
+}
+// A look at a control on the screen edge scatters to both sides of that edge.
+// Rejecting every estimate that lands just past it interrupted tracking there
+// again and again, so edge controls were the hardest to hold. Estimates within
+// a small allowance are kept and placed on the edge; anything further out is
+// still rejected. The unclipped estimate stays in `raw` for accuracy reports.
+export const EDGE_ALLOWANCE=.04;
+export function screenPoint(raw){
+ if(!raw||![raw.x,raw.y].every(v=>Number.isFinite(v)&&v>=-EDGE_ALLOWANCE&&v<=1+EDGE_ALLOWANCE))return null;
+ return {x:Math.max(0,Math.min(1,raw.x)),y:Math.max(0,Math.min(1,raw.y))};
+}
+// Moves an estimate by a screen-fraction shift and decides again whether it is
+// on the screen. Estimates rejected for another reason (head position, eyes not
+// read) stay rejected.
+export function shiftPrediction(prediction,shift){
+ if(!prediction?.raw||!Array.isArray(shift)||!(shift[0]||shift[1])||!['usable','outside-screen',undefined].includes(prediction.reason))return prediction;
+ if(prediction.reason===undefined&&!prediction.point)return prediction;
+ const raw={x:prediction.raw.x+shift[0],y:prediction.raw.y+shift[1]},point=screenPoint(raw);
+ return {...prediction,raw,point,...(prediction.reason===undefined?{}:{reason:point?'usable':'outside-screen'})};
+}
+// Re-centring from use. A map made a while ago reads everything a little to
+// one side: the eye reading for the same place on the screen moves by a camera
+// pixel or two as a person shifts in the seat, and one camera pixel is tens of
+// screen pixels. Every button a person selects by looking at it says where
+// they were looking, roughly: at that button. So each selection that stands
+// moves all estimates a part of the way towards its button.
+//
+// How large a part is what a filter of the usual kind (Kalman's, one number
+// for each direction) works out: `variance` is how unsure the offset is, a
+// selection is believed by variance / (variance + what one look at a button
+// of this size can be off by), and after each one the offset is taken to have
+// wandered on a little. With keys of a keyboard that comes to about a third of
+// the distance for the first selection and a sixth later on.
+//
+// Until 0.4.33 it waited for six selections to agree beyond doubt before it
+// moved anything. Replayed on every recorded session, that rule never moved
+// the pointer once, although in one session all 16 selections lay to the same
+// side of their buttons (32 px on average) and in another 5 of 6 did (70 px).
+// This one costs about a point of right selections in a hundred when nothing
+// is wrong and gains ten or more when the pointer reads 60 px or more to one
+// side.
+//
+// What keeps it from doing harm:
+//  - a selection counts only once the next one has not taken it back (Back,
+//    delete), since a selection that had to be undone was probably the wrong
+//    button and says nothing about where the eyes were;
+//  - a large button says little (the eyes could be anywhere on it), a small
+//    one says more: each selection is believed by its button's size, and by
+//    how widely this person turns out to look about on buttons; a button
+//    across more than 30% of the screen is not believed at all that way;
+//  - one correction is limited, and so is their total: a drift beyond that is
+//    for an accuracy check or a new calibration to deal with.
+// All positions are fractions of the screen.
+export class Recentre{
+ constructor({size=16,maxAge=300000,limit=.18,step=.06,noise=[.025,.035],looking=.2,doubt=[.02,.025],wander=[.006,.006],widest=.3}={}){
+  Object.assign(this,{size,maxAge,limit,step,noise,doubt,wander,widest,startLooking:looking});this.reset();
+ }
+ reset(){this.shift=[0,0];this.window=[];this.pending=null;this.looking=[this.startLooking,this.startLooking];this.variance=this.doubt.map(v=>v*v);}
+ get active(){return this.shift[0]!==0||this.shift[1]!==0;}
+ // gaze: the middle of the estimates during the dwell, with this.shift already
+ // in them. rect: the selected button {x0,y0,x1,y1}. undo: this selection
+ // takes back the one before. use:false for a selection that says nothing
+ // about where the eyes were (a square of a zoom grid).
+ observe({gaze,rect,at,undo=false,use=true}){
+  const result={residual:null,counted:false,applied:null};
+  if(this.pending){if(!undo){this.window.push(this.pending);result.counted=true;}this.pending=null;}
+  if(use&&gaze&&rect&&[gaze.x,gaze.y,rect.x0,rect.y0,rect.x1,rect.y1,at].every(Number.isFinite)&&rect.x1>rect.x0&&rect.y1>rect.y0)
+   {this.pending={at,residual:[(rect.x0+rect.x1)/2-gaze.x,(rect.y0+rect.y1)/2-gaze.y],extent:[rect.x1-rect.x0,rect.y1-rect.y0]};result.residual=this.pending.residual;}
+  this.window=this.window.filter(o=>at-o.at<=this.maxAge).slice(-this.size);
+  if(!result.counted)return result;
+  const newest=this.window.at(-1),others=this.window.slice(0,-1);
+  if(!newest)return result; // Older than anything still remembered.
+  const correction=[0,1].map(axis=>{
+   // A button that spans a third of the screen says next to nothing about where on it the eyes
+   // were, and believing it even a little lets the pointer wander by as much as it could gain.
+   if(newest.extent[axis]>this.widest)return 0;
+   // How widely this person looks about on a button, as a share of its size,
+   // learned from the newest selection against the recent others. It starts
+   // cautious, is never taken to be tighter than 8% and is kept a little wide.
+   if(others.length>=2){
+    const centre=others.reduce((s,o)=>s+o.residual[axis],0)/others.length;
+    const share=Math.max(0,(newest.residual[axis]-centre)**2*(others.length/(others.length+1))-this.noise[axis]**2)/newest.extent[axis]**2;
+    this.looking[axis]=Math.max(.08,Math.min(.3,Math.sqrt(.93*this.looking[axis]**2+.07*1.3*share)));
+   }
+   // What one look at a button of this size can be off by, against how unsure the offset is.
+   const said=(this.looking[axis]*newest.extent[axis])**2+this.noise[axis]**2,trust=this.variance[axis]/(this.variance[axis]+said);
+   this.variance[axis]=(1-trust)*this.variance[axis]+this.wander[axis]**2;
+   // However small: a step held back for being small leaves a pointer that reads 25 px to one side where it is.
+   return Math.max(-this.step,Math.min(this.step,trust*newest.residual[axis]));
+  });
+  if(!correction[0]&&!correction[1])return result;
+  const next=this.shift.map((v,i)=>Math.max(-this.limit,Math.min(this.limit,v+correction[i])));
+  result.applied=next.map((v,i)=>v-this.shift[i]);this.shift=next;
+  // Everything still remembered was measured before this correction.
+  for(const o of this.window)o.residual=o.residual.map((r,i)=>r-result.applied[i]);
+  if(this.pending)this.pending.residual=this.pending.residual.map((r,i)=>r-result.applied[i]);
+  if(!result.applied[0]&&!result.applied[1])result.applied=null; // Already at the limit.
+  return result;
+ }
 }
 export function predictDetailed(f,m){
  if(!validModel(m))return {point:null,raw:null,reason:'no-model'};
@@ -386,8 +861,8 @@ export function predictDetailed(f,m){
  const raw=estimate(f,m);if(!finite([raw.x,raw.y]))return {point:null,raw:null,reason:'invalid-estimate'};
  const headReasons=headRejections(f,m);
  if(headReasons.length)return {point:null,raw,reason:'head-position',headReasons};
- if(raw.x<0||raw.x>1||raw.y<0||raw.y>1)return {point:null,raw,reason:'outside-screen'};
- return {point:raw,raw,reason:'usable'};
+ const point=screenPoint(raw);
+ return point?{point,raw,reason:'usable'}:{point:null,raw,reason:'outside-screen'};
 }
 export function fitAlignment(groups,model,{eyeOnly=false}={}){return fitRepair(groups,model,{eyeOnly});}
 export function fitOffset(samples,model){
@@ -404,6 +879,54 @@ export function fitOffset(samples,model){
  delete result.anchors;
  return result;
 }
+// A shift shared by the accuracy checks. Each check reports where the median
+// estimate lay relative to its dot. When nearly all of them lie to the same
+// side by a similar amount, the map itself is sound and everything has moved
+// together since calibration (posture, glasses settling on the nose). Returns
+// the correction as shares of the screen, or null when the checks do not agree
+// on one. Works per direction and from medians, so one odd check cannot create
+// or hide a shift.
+export function checkOffset(validation,width,height){
+ const per=(validation?.perTarget||[]).filter(p=>Number.isFinite(p.offsetX)&&Number.isFinite(p.offsetY)&&p.estimatedFraction>=.5);
+ if(per.length<6||!(width>0)||!(height>0))return null;
+ const shared=(values,size)=>{
+  const middle=median(values),spread=1.4826*median(values.map(v=>Math.abs(v-middle)));
+  // Standard error of a median; the floor stops seven identical values from
+  // making a tiny shift look certain.
+  const error=1.2533*Math.max(spread,.004*size)/Math.sqrt(values.length);
+  return Math.abs(middle)>=2.5*error&&Math.abs(middle)>=.02*size?middle:0;
+ };
+ const x=shared(per.map(p=>p.offsetX),width),y=shared(per.map(p=>p.offsetY),height);
+ if(!x&&!y)return null;
+ return {shift:[x?-x/width:0,y?-y/height:0],pixels:{x:Math.round(x),y:Math.round(y)}};
+}
+// The map with that shift corrected, or null when there is nothing to correct,
+// it was already corrected once, or the shift is too large to be a mere shift.
+// The checks that revealed the shift cannot also confirm the correction: the
+// caller must run a fresh check afterwards.
+// Without `repeat`, a map is corrected once only. With it, a later check may
+// correct the map again (the total stays limited): used for checks a person
+// starts, never for the check that follows a correction.
+export function applyCheckOffset(model,validation,width,height,{repeat=false}={}){
+ if(!validModel(model)||model.checkOffset&&!repeat)return null;
+ const found=checkOffset(validation,width,height);
+ if(!found||found.shift.some(v=>Math.abs(v)>.2))return null;
+ const offset=found.shift.map((v,i)=>v+(model.offset?.[i]||0));
+ if(offset.some(v=>!Number.isFinite(v)||Math.abs(v)>.3))return null;
+ const result={...model,offset,checkOffset:{shift:found.shift,pixels:found.pixels,previousCheck:{meanPixels:validation.meanPixels,p90Pixels:validation.p90Pixels},recordedAt:Date.now()}};
+ // As with a one-point alignment, the target summaries from calibration no
+ // longer describe the session this correction was measured in.
+ delete result.anchors;
+ return result;
+}
+// A map with everything moved by a screen-fraction shift (what re-centring
+// from use has learned), or null when that would exceed what a map may hold.
+export function shiftedModel(model,shift){
+ if(!validModel(model)||!Array.isArray(shift)||shift.length!==2||!finite(shift))return null;
+ const offset=shift.map((v,i)=>v+(model.offset?.[i]||0));
+ if(offset.some(v=>Math.abs(v)>.3))return null;
+ const result={...model,offset};delete result.anchors;return result;
+}
 export function fitRefinement(groups,model){return fitRepair(groups,model,{refine:true});}
 function fitRepair(groups,model,{eyeOnly=false,refine=false}={}){
  const targets=refine?REFINE_TARGETS:ALIGN_TARGETS;
@@ -416,7 +939,8 @@ function fitRepair(groups,model,{eyeOnly=false,refine=false}={}){
  // anchors must agree with EACH OTHER, rather than with yesterday's position.
  if(eyeOnly&&rows.some(g=>!headMatches(g.feature,{head})))
   throw Error('Your position changed during these five points. Settle into a comfortable position and retry the five-point eye-only repair. Your previous calibration is kept.');
- if(!eyeOnly&&rows.some(({feature:f})=>Math.abs(f.x-sourceHead.x)>.12||Math.abs(f.y-sourceHead.y)>.12||Math.abs(f.scale/sourceHead.scale-1)>.35||Math.abs(f.roll-sourceHead.roll)>.25))
+ const reach=.12*poseZoom(sourceHead.scale);
+ if(!eyeOnly&&rows.some(({feature:f})=>Math.abs(f.x-sourceHead.x)>reach||Math.abs(f.y-sourceHead.y)>reach||Math.abs(f.scale/sourceHead.scale-1)>.35||Math.abs(f.roll-sourceHead.roll)>.25))
   throw Error('Your head position changed too much to reuse the old mapping. Choose Realign after moving · 5 points to rebuild an eye-only map at your new position. Your previous calibration is kept.');
  const fitA=(rs,affine)=>{
   rs=rs.map(g=>({...g,point:estimate(g.feature,base)}));
@@ -469,6 +993,9 @@ function fitRepair(groups,model,{eyeOnly=false,refine=false}={}){
  const fitted=selected.factory(rows);
  const result={...fitted,head,alignment:{...(fitted.alignment||{weights:[[0,1,0],[0,0,1]],sourceHead:head,affine:false}),rebuilt:selected.rebuilt,estimatedError:selected.score},
   repairComparison:{existingError:existing?.score??null,eyeOnlyError:repair?.score??null,rebuilt:selected.rebuilt,eyeOnlyRequested:eyeOnly,refined:refine,regional:!!selected.regional,unchanged:!!selected.unchanged,selectedError:selected.score,anchorCount:rows.length},trainingRevision:1};
+ // A repaired map reads the same signal as the map it repairs.
+ if(readsIrisPixels(model))result.irisPixels=true;else delete result.irisPixels;
+ delete result.signal;
  if(selected.rebuilt){result.trainingLocations=rows.length;result.centerRepeatCount=1;result.centerDrift=0;result.centerDriftX=0;result.centerDriftY=0;}
  result.anchors=referenceAnchors(rows);
  if(!validModel(result))throw Error('Alignment could not be saved. Use New calibration.');
@@ -480,8 +1007,8 @@ export function validateCalibration(groups,model,width,height,{predictor=null}={
   const errors=[],jx=[],jy=[],perTarget=[],rejected={};let total=0,valid=0;
   // This measures the correction's contribution, not the accuracy of a newly
   // fitted eye-only model. Do not use it to select or enable another model.
-  const withoutCorrection=!predictor&&model.poseCorrection?{...model,version:2}:null;
-  if(withoutCorrection)delete withoutCorrection.poseCorrection;
+  const withoutCorrection=!predictor&&(model.poseCorrection||model.headTerms)?{...model,version:2}:null;
+  if(withoutCorrection){delete withoutCorrection.poseCorrection;delete withoutCorrection.headTerms;}
   for(const g of groups){
     const results=g.samples.map(f=>predictor?predictor(f):predictDetailed(f,model)),points=results.map(r=>r.raw).filter(Boolean),usable=results.filter(r=>r.point).length,reasons={},headReasons={},correction=[];
     for(const r of results)if(r.reason!=='usable')reasons[r.reason]=(reasons[r.reason]||0)+1;
@@ -700,6 +1227,57 @@ export class TargetIntent{
   const hits=this.history.filter(v=>v.target===this.target),confident=confirmed&&hits.length>=3&&at-this.startedAt>=150&&hits.length/this.history.length>=.7;
   return {target:this.target,confirmed,confident};
  }
+}
+// ---- Buttons sized for the measured accuracy -------------------------------
+// `reach` is how far estimates lie from where a person looks, nine times in
+// ten, in pixels across and down (an accuracy check measures it).
+//
+// Recorded looks at a known place (35 of them, three sessions, about 2.4 s
+// each), replayed through the lock and dwell code with a key of a given size
+// under the gaze and equal keys around it:
+//   key = 1   x reach: right key  8 of 35, wrong key 16
+//   key = 1.5 x reach: right key 19,       wrong key 11
+//   key = 2   x reach: right key 30,       wrong key  1
+//   key = 2.5 x reach: right key 35,       wrong key  0
+// The keyboard's 44 px keys were a quarter to a half of the reach in those
+// sessions (right key 4 of 35). Keeping hold of a key more stubbornly was tried
+// on the same looks and selected more wrong keys, not more right ones: the
+// size of the key decides.
+const ENOUGH=2,AMPLE=2.5;
+// The typing panel: word suggestions, actions and the keys share one row
+// height. `fine`: the reach allows the 44 px keyboard, which stays as it was.
+// Otherwise all letters at once (30 keys) when keys of twice the reach fit;
+// failing that, fewer keys of two and a half times the reach, as far as four
+// rows fit the screen, and letters are chosen by groups.
+export function typingGrid(width,height,reach){
+ const x=Math.max(0,reach?.x||0),y=Math.max(0,reach?.y||0),gap=6;
+ const flatColumns=Math.max(5,Math.min(10,Math.floor((width-32)/48)));
+ if(ENOUGH*y<=44+gap&&ENOUGH*x<=(width-32)/flatColumns)return {fine:true,row:44,keyRows:3,columns:flatColumns,capacity:3*flatColumns};
+ const available=height-138; // Without the bottom bar, the text field, its label and the panel's padding.
+ const grid=factor=>{
+  const row=Math.max(44,Math.min(Math.round(factor*y),Math.floor((available-3*gap)/4)));
+  const keyRows=Math.max(2,Math.min(4,Math.floor((available-2*(row+gap)+gap)/(row+gap))));
+  const columns=Math.max(2,Math.min(10,Math.floor((width-24+gap)/(Math.max(64,Math.round(factor*x))+gap))));
+  return {fine:false,row,keyRows,columns,capacity:keyRows*columns};
+ };
+ const all=grid(ENOUGH);
+ return all.capacity>=30?all:grid(AMPLE);
+}
+// Letters by groups, for a panel that cannot show them all at once. With eight
+// or more keys to a page: six groups, then the letters of one (two looks a
+// letter). With fewer: three groups of nine, then of three (three looks).
+export function letterGroups(capacity){return capacity>=8?['ABCDE','FGHIJ','KLMN','OPQR','STUV','WXYZ']:['ABCDEFGHI','JKLMNOPQR','STUVWXYZ'];}
+// A floating menu of `count` buttons: its rows and columns, and the size of a
+// button: two and a half times the reach where the screen allows, never
+// smaller than the menu was (64 x 210), never more rows than fit.
+export function menuGrid(count,width,available,reach,{row=64,column=210,gap=8,padding=24}={}){
+ const x=Math.max(0,reach?.x||0),y=Math.max(0,reach?.y||0);
+ const rowHeight=Math.max(row,Math.min(Math.round(AMPLE*y),Math.floor((available-padding-gap)/2))),columnWidth=Math.max(column,Math.round(AMPLE*x));
+ // Enlarged, up to four buttons go side by side: a strip along the bottom
+ // leaves the middle of the screen free for reading what is behind it.
+ const most=Math.max(2,Math.min(4,Math.floor((width-32-padding+gap)/(columnWidth+gap)))),columns=count<=4?(rowHeight>row&&most>=count?Math.max(2,count):2):most;
+ const maxRows=Math.max(1,Math.floor((available-padding+gap)/(rowHeight+gap))),rows=Math.min(Math.ceil(count/columns),maxRows);
+ return {columns,rows,capacity:columns*rows,rowHeight,columnWidth:Math.min(columnWidth,Math.floor((width-32-padding-(columns-1)*gap)/columns)),height:rows*rowHeight+(rows-1)*gap+padding};
 }
 export function chooseLayout(width,height,validation){
   const geometry=controlGeometry(width,height,validation),margin=selectionMargin(validation,width,height),usableWidth=Math.max(1,width-32),usableHeight=Math.max(1,height-geometry.top-geometry.bottom);

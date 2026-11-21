@@ -71,3 +71,24 @@ export class CalibrationStore {
   this.queue=task.catch(()=>{});return task;
  }
 }
+
+// Diagnostics, written only on request: one file of numbers (readings for each
+// calibration and check dot, the map and the check results) for working out
+// where an error comes from. The first directory that can be written is used,
+// and only the newest twenty files are kept there.
+export async function saveDiagnostics(directories,text,now=new Date()){
+ if(typeof text!=='string'||text.length<2||text.length>8*1024*1024)throw Error('Invalid diagnostics');
+ let data;try{data=JSON.parse(text);}catch{throw Error('Invalid diagnostics');}
+ if(data?.format!=='hands-free-diagnostics')throw Error('Invalid diagnostics');
+ const two=n=>String(n).padStart(2,'0'),name=`hands-free-diagnostics-${now.getFullYear()}${two(now.getMonth()+1)}${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}${two(now.getSeconds())}.json`;
+ let failure=null;
+ for(const directory of directories)try{
+  await fs.mkdir(directory,{recursive:true});
+  const file=path.join(directory,name);
+  await fs.writeFile(file,text,'utf8');
+  const older=(await fs.readdir(directory)).filter(n=>/^hands-free-diagnostics-\d{8}-\d{6}\.json$/.test(n)).sort().slice(0,-20);
+  for(const n of older)await fs.unlink(path.join(directory,n)).catch(()=>{});
+  return file;
+ }catch(e){failure=e;}
+ throw failure||Error('No folder is available for diagnostics');
+}

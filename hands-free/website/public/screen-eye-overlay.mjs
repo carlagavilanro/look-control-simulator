@@ -11,11 +11,18 @@ export function eyeOverlay(points){
   const all=[...eyes.outlines.flat(),...eyes.irises.flatMap(i=>[i.center,...i.ring])];
   return all.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))?eyes:null;
 }
-export function drawEyeOverlay(canvas,eyes,width,height){
+// view {x,y,size} is the square of the picture the face tracker is reading, in
+// frame pixels. Drawing it shows that the tracker follows the face even though
+// the camera picture itself stays as it is.
+export function drawEyeOverlay(canvas,eyes,width,height,view=null){
   if(!(width>0&&height>0))return;
   if(canvas.width!==width)canvas.width=width;
   if(canvas.height!==height)canvas.height=height;
   const ctx=canvas.getContext('2d');ctx.clearRect(0,0,width,height);
+  if(view&&view.size>0&&view.size<Math.min(width,height)){
+    ctx.save();ctx.strokeStyle='#ffd166';ctx.lineWidth=Math.max(2,width/640);ctx.setLineDash([6*ctx.lineWidth,4*ctx.lineWidth]);
+    ctx.strokeRect(view.x,view.y,view.size,view.size);ctx.restore();
+  }
   if(!eyes)return;
   ctx.strokeStyle='#39b9ff';ctx.fillStyle='#39b9ff';ctx.lineWidth=Math.max(2,width/640);
   for(const poly of eyes.outlines){

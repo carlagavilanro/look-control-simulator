@@ -10,10 +10,13 @@ const digest=value=>createHash('sha256').update(value).digest();
 const equal=(a,b)=>timingSafeEqual(digest(a),digest(b));
 const lifetime=12*60*60*1000;
 const mime={'.html':'text/html; charset=utf-8','.json':'application/json','.mjs':'text/javascript','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm','.task':'application/octet-stream','.ttf':'font/ttf','.txt':'text/plain'};
-const files={'/screen-eye-crop.mjs':'screen-eye-crop.mjs','/screen-typing.mjs':'screen-typing.mjs','/screen-camera.mjs':'screen-camera.mjs','/screen':'screen.html','/screen.html':'screen.html','/screen.css':'screen.css','/screen-app.mjs':'screen-app.mjs','/screen-positions.mjs':'screen-positions.mjs','/screen-targets.mjs':'screen-targets.mjs','/screen-gaze.mjs':'screen-gaze.mjs','/screen-worker.mjs':'screen-worker.mjs','/screen-eye-overlay.mjs':'screen-eye-overlay.mjs','/':'index.html','/app.mjs':'app.mjs','/cloud-mode.mjs':'cloud-mode.mjs','/eye-selection.mjs':'eye-selection.mjs','/vision-worker.mjs':'vision-worker.mjs','/style.css':'style.css'};
+const files={'/screen-eye-crop.mjs':'screen-eye-crop.mjs','/screen-iris-detail.mjs':'screen-iris-detail.mjs','/screen-face-detail.mjs':'screen-face-detail.mjs','/screen-typing.mjs':'screen-typing.mjs','/screen-camera.mjs':'screen-camera.mjs','/screen':'screen.html','/screen.html':'screen.html','/screen.css':'screen.css','/screen-app.mjs':'screen-app.mjs','/screen-positions.mjs':'screen-positions.mjs','/screen-targets.mjs':'screen-targets.mjs','/screen-gaze.mjs':'screen-gaze.mjs','/screen-worker.mjs':'screen-worker.mjs','/screen-eye-overlay.mjs':'screen-eye-overlay.mjs','/':'index.html','/app.mjs':'app.mjs','/cloud-mode.mjs':'cloud-mode.mjs','/eye-selection.mjs':'eye-selection.mjs','/vision-worker.mjs':'vision-worker.mjs','/style.css':'style.css'};
 const login=error=>`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · Hands Free</title><link rel="stylesheet" href="/style.css"><style>body{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px}.login{width:440px;max-width:100%;margin:0;padding:36px;border:1px solid var(--border);border-radius:24px;background:white}.login h1{font-size:36px;letter-spacing:-1.4px;margin:20px 0 12px}.login p{line-height:1.65;color:var(--muted)}.login label{margin-top:20px}.login button{width:100%;margin-top:24px}.login .error{color:#a12d43;font-weight:700}</style></head><body><main class="login"><a class="wordmark" href="/">Hands Free</a><h1>Sign in</h1><p>Enter your username and password.</p>${error?'<p class="error" role="alert">Incorrect username or password. Please try again.</p>':''}<form action="/login" method="post"><label for="username">Username</label><input id="username" name="username" autocomplete="username" maxlength="100" required autofocus><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="200" required><button class="primary-button" type="submit">Sign in →</button></form><p>Your camera stays on your device. No video is uploaded or stored.</p></main></body></html>`;
 
-export function createCloudServer({username,password,secureCookies=true}){
+// Built from the repository, the site holds no copy of the Windows app (it is far too large to commit).
+// The repository's build publishes it as a release, and the download link is sent there.
+const releaseDownload='https://github.com/carlagavilanro/look-control-simulator/releases/latest/download/Hands-Free-Screen-Control-Windows.zip';
+export function createCloudServer({username,password,secureCookies=true,downloadUrl=releaseDownload}){
  if(!username||username.length>100||!password||password.length<24)throw Error('Set SITE_USERNAME and a random SITE_PASSWORD of at least 24 characters before cloud startup.');
  const sessions=new Map(),attempts=new Map();
  const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data));};
@@ -69,7 +72,8 @@ export function createCloudServer({username,password,secureCookies=true}){
    }
    if(url.pathname==='/downloads/Hands-Free-Screen-Control-Windows.zip'&&['GET','HEAD'].includes(req.method)){
     const zip=path.join(root,'public','downloads','Hands-Free-Screen-Control-Windows.zip');
-    const stat=await fs.stat(zip);
+    const stat=await fs.stat(zip).catch(()=>null);
+    if(!stat){res.writeHead(302,{Location:downloadUrl});return res.end();}
     res.writeHead(200,{'Content-Type':'application/zip','Content-Length':stat.size,'Content-Disposition':'attachment; filename="Hands-Free-Screen-Control-Windows.zip"'});
     if(req.method==='HEAD')res.end();else{const stream=createReadStream(zip);stream.on('error',()=>res.destroy());res.on('close',()=>stream.destroy());stream.pipe(res);}return;
    }
@@ -85,7 +89,7 @@ export function createCloudServer({username,password,secureCookies=true}){
 }
 
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
- const server=createCloudServer({username:process.env.SITE_USERNAME,password:process.env.SITE_PASSWORD});
+ const server=createCloudServer({username:process.env.SITE_USERNAME,password:process.env.SITE_PASSWORD,...(/^https:\/\//.test(process.env.DOWNLOAD_URL||'')?{downloadUrl:process.env.DOWNLOAD_URL}:{})});
  server.listen(Number(process.env.PORT||8787),process.env.HOST||'0.0.0.0',()=>console.log('Look & Control cloud website ready. Appliance connection is disabled.'));
  process.on('SIGTERM',()=>{server.close(()=>process.exit(0));setTimeout(()=>process.exit(0),10000).unref();});
 }

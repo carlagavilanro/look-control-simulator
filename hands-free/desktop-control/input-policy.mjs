@@ -1,10 +1,16 @@
-export const KEYS=new Set(['enter','tab','shifttab','backspace','escape','pageup','pagedown','home','end','back','forward','address']);
+// start: the Windows key. nextapp: Alt+Esc (the open windows, one after another). lastapp: Alt+Tab
+// (the window used before this one). notifications: Windows' notification list.
+export const KEYS=new Set(['enter','tab','shifttab','backspace','escape','pageup','pagedown','home','end','back','forward','address','start','nextapp','lastapp','notifications']);
+// Keys after which a different window is in front.
+export const SWITCHES=new Set(['start','nextapp','lastapp','notifications']);
 export function checkCommand(p){
  if(!p||typeof p!=='object')throw Error('Invalid input');
  if(p.type==='click'&&Number.isFinite(p.x)&&Number.isFinite(p.y)&&p.x>=0&&p.x<=1&&p.y>=0&&p.y<=1)return {type:'click',x:p.x,y:p.y};
  if(p.type==='scroll'&&Number.isInteger(p.amount)&&Math.abs(p.amount)<=5&&p.amount!==0)return {type:'scroll',amount:p.amount};
  if(p.type==='text'&&typeof p.text==='string'&&p.text.length<=1000&&!/[\u0000-\u001f\u007f]/.test(p.text)&&(p.submit===undefined||typeof p.submit==='boolean'))return {type:'text',text:p.text,...(p.submit===true?{submit:true}:{})};
  if(p.type==='key'&&KEYS.has(p.key))return {type:'key',key:p.key};
+ // The name of an app, to be typed into Windows' own search and opened: one line of ordinary text.
+ if(p.type==='launch'&&typeof p.text==='string'&&p.text.length<=60&&p.text.trim().length>0&&!/[\u0000-\u001f\u007f]/.test(p.text))return {type:'launch',text:p.text.trim()};
  throw Error('Input is outside the supported controls');
 }
 export function siteUrl(site,query=''){

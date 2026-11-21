@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {CalibrationStore} from '../calibration-store.mjs';
-import {TRAIN_TARGETS,ALIGN_TARGETS,fitCalibration,fitAlignment,validModel} from '../../website/public/screen-gaze.mjs';
+import {CalibrationStore,saveDiagnostics} from '../calibration-store.mjs';
+import {TRAIN_TARGETS,ALIGN_TARGETS,CHECK_TARGETS,MOVE_TARGETS,calibrationTargets,predictDetailed,fitCalibration,fitAlignment,validModel,readsIrisPixels,applyCheckOffset} from '../../website/public/screen-gaze.mjs';
+import {person} from '../../website/test/support/moving-head.mjs';
 const model=fitCalibration(TRAIN_TARGETS.map(target=>({target,samples:Array.from({length:30},()=>({h:.25+.4*target[0],v:-.075+.15*target[1],x:.5,y:.45,scale:.3,roll:0}))})));
 const record={model,setup:{deviceId:'camera',width:1280,height:720,screenWidth:1440,screenHeight:960,pixelRatio:1},validation:null};
 
@@ -50,6 +51,26 @@ test('4K camera, zoom and lens settings survive the native store and a restart',
  await assert.rejects(store.change('Camera test',{...record,setup:{...setup,controls:{zoom:'invalid'}}}),/camera control/);
 });
 async function fixture(t){const dir=await fs.mkdtemp(path.join(os.tmpdir(),'calibration-test-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));const file=path.join(dir,'calibrations.json');return {file,store:new CalibrationStore(file,validModel)};}
+test('a map that uses head position is saved and read back unchanged',async t=>{
+ const {file,store}=await fixture(t);
+ const p=person(2),aware=fitCalibration(calibrationTargets(true).map(target=>p.held(target)),{moved:MOVE_TARGETS.map(target=>p.moving(target))});
+ assert.ok(aware.headTerms);assert.equal(aware.headStep.withMovement,true);
+ await store.change('Head',{...record,model:aware});
+ const saved=(await new CalibrationStore(file,validModel).read()).profiles[0].record.model;
+ assert.ok(validModel(saved));assert.deepEqual(saved.headTerms,aware.headTerms);assert.equal(saved.headStep.dots,3);
+ const f=p.held([.4,.6]).samples[0];assert.deepEqual(predictDetailed(f,saved).raw,predictDetailed(f,aware).raw);
+});
+test('a map that reads the eyelids is saved and read back unchanged',async t=>{
+ const {file,store}=await fixture(t);
+ const p=person(11,{lids:true,irisNoise:.005}),lids=fitCalibration(calibrationTargets(true).map(target=>p.held(target)));
+ assert.ok(lids.lidTerms);assert.equal(lids.lidStep.used,true);
+ await store.change('Lids',{...record,model:lids});
+ const saved=(await new CalibrationStore(file,validModel).read()).profiles[0].record.model;
+ assert.ok(validModel(saved));assert.deepEqual(saved.lidTerms,lids.lidTerms);assert.deepEqual(saved.lidStep,lids.lidStep);assert.ok(Number.isFinite(saved.lidTerms.between),'with the usual difference between the two eyes (0.4.31)');
+ // The dots' summaries keep the openings, so a later realignment sees what the map reads.
+ assert.ok(saved.anchors.every(a=>Number.isFinite(a.feature.lo)&&Number.isFinite(a.feature.ro)));
+ const f=p.held([.4,.6]).samples[0];assert.deepEqual(predictDetailed(f,saved).raw,predictDetailed(f,lids).raw);
+});
 test('unfinished accuracy check survives a new app instance without video or raw samples',async t=>{
  const {file,store}=await fixture(t);await store.change(' Test ',{...record,images:'do not store',samples:[1,2,3]});
  const saved=await new CalibrationStore(file,validModel).read();assert.equal(saved.lastName,'Test');assert.equal(saved.profiles[0].record.validation,null);assert.ok(validModel(saved.profiles[0].record.model));
@@ -115,4 +136,37 @@ test('all fifteen head positions survive a restart and remain independently meas
  await store.change('Fifteen',{...record,headPositions,activePositionId:15});
  const saved=(await new CalibrationStore(file,validModel).read()).profiles[0].record;
  assert.deepEqual(saved.headPositions,headPositions);assert.equal(saved.activePositionId,15);
+});
+
+test('a map that reads the iris from camera pixels, with a corrected shift, survives a restart',async t=>{
+ const {file,store}=await fixture(t);
+ // Frames with a second, steadier reading: calibration keeps that one.
+ let seed=7;const noise=()=>{seed=(seed*1103515245+12345)%2147483648;return seed/2147483648-.5;};
+ const chosen=fitCalibration(TRAIN_TARGETS.map(target=>({target,samples:Array.from({length:30},()=>{
+  const h=.25+.4*target[0],v=-.075+.15*target[1],f={lh:h+.02+noise()*.02,lv:v+noise()*.01,rh:h-.02+noise()*.02,rv:v+noise()*.01,x:.5,y:.45,scale:.3,roll:0};f.h=(f.lh+f.rh)/2;f.v=(f.lv+f.rv)/2;
+  const a={lh:h+.02+noise()*.001,lv:v+noise()*.0005,rh:h-.02+noise()*.001,rv:v+noise()*.0005};f.alt={...a,h:(a.lh+a.rh)/2,v:(a.lv+a.rv)/2};return f;})})));
+ assert.ok(readsIrisPixels(chosen),'the camera-pixel reading was kept');
+ const shifted=applyCheckOffset(chosen,{meanPixels:120,p90Pixels:180,perTarget:CHECK_TARGETS.map(([x,y])=>({x,y,offsetX:90,offsetY:-60,estimatedFraction:1}))},1440,960);
+ assert.ok(shifted);
+ await store.change('Pixels',{...record,model:shifted});
+ const saved=(await new CalibrationStore(file,validModel).read()).profiles[0].record.model;
+ assert.ok(readsIrisPixels(saved));assert.deepEqual(saved.offset,shifted.offset);assert.deepEqual(saved.checkOffset.pixels,{x:90,y:-60});
+ // Text never reaches disk: the form 0.4.18 used is refused, as before.
+ await assert.rejects(store.change('Text',{...record,model:{...chosen,signal:'detail'}}),/Only numerical/);
+});
+
+test('diagnostics are written only as one file of numbers, newest twenty kept',async t=>{
+ const directory=await fs.mkdtemp(path.join(os.tmpdir(),'hands-free-diagnostics-'));t.after(()=>fs.rm(directory,{recursive:true,force:true}));
+ const text=JSON.stringify({format:'hands-free-diagnostics',formatVersion:1,frames:[[1,'train',0,'usable',.5]]});
+ const file=await saveDiagnostics([path.join(directory,'a')],text,new Date(2026,10,15,16,5,9));
+ assert.equal(path.basename(file),'hands-free-diagnostics-20261115-160509.json');assert.equal(await fs.readFile(file,'utf8'),text);
+ // A folder that cannot be used falls through to the next one.
+ await fs.writeFile(path.join(directory,'blocked'),'x');
+ const second=await saveDiagnostics([path.join(directory,'blocked','inside'),path.join(directory,'b')],text,new Date(2026,10,15,16,6,0));
+ assert.equal(path.dirname(second),path.join(directory,'b'));
+ await assert.rejects(saveDiagnostics([path.join(directory,'blocked','inside')],text),/./);
+ for(const bad of ['',' ','{"format":"other"}','not json',42,'x'.repeat(9*1024*1024)])await assert.rejects(saveDiagnostics([directory],bad),/Invalid diagnostics/);
+ for(let i=0;i<24;i++)await saveDiagnostics([path.join(directory,'a')],text,new Date(2026,10,16,10,0,i));
+ const kept=(await fs.readdir(path.join(directory,'a'))).sort();
+ assert.equal(kept.length,20);assert.equal(kept.at(-1),'hands-free-diagnostics-20261116-100023.json');assert.ok(!kept.includes('hands-free-diagnostics-20261115-160509.json'));
 });

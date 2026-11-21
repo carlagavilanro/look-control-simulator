@@ -73,7 +73,11 @@ import {validModel,summarize,FixationGate,selectionMargin,containedTarget,choose
 test('new calibration rejects obsolete models and checks different screen locations',()=>{
  const m=fitCalibration(TRAIN_TARGETS.map(group));assert.ok(validModel(m));assert.equal(validModel({...m,version:1}),false);
  assert.ok(CHECK_TARGETS.every(p=>!TRAIN_TARGETS.some(t=>t[0]===p[0]&&t[1]===p[1])));
- assert.equal(predict(feature(-.01,.5),m),null);assert.equal(predict(feature(1.01,.5),m),null);
+ // Just past an edge counts as that edge, so edge controls are not interrupted;
+ // the unclipped estimate is kept for accuracy reports. Further out is rejected.
+ const left=predictDetailed(feature(-.01,.5),m),right=predictDetailed(feature(1.01,.5),m);
+ assert.equal(left.point.x,0);assert.ok(left.raw.x<0);assert.equal(right.point.x,1);assert.ok(right.raw.x>1);assert.equal(left.reason,'usable');
+ assert.equal(predict(feature(-.06,.5),m),null);assert.equal(predict(feature(1.06,.5),m),null);assert.equal(predict(feature(.5,1.06),m),null);
 });
 
 test('independent frame errors expose jitter that a median-only check would hide',()=>{

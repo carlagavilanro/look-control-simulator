@@ -1,6 +1,8 @@
 // Set up a device: add a device, add a button, record it with the receiver board, name it.
 // Also: link the boards and the Windows app, and look after the list of recordings.
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
+// Shown inside Screen control (to be used with the eye pointer): the side bar and sign-out are left out.
+if(window.top!==window.self)document.documentElement.classList.add('embedded');
 const kindNames={fan:'Fan',tv:'TV',heater:'Heater',light:'Light',other:'Other'},kindIcon={fan:'fan',tv:'tv',heater:'heat',light:'light',other:'dot'};
 // Button names offered for each kind of device, with the picture that goes with each.
 const suggestions={

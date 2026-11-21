@@ -1,5 +1,6 @@
 import {ProfileStore} from './vendor/profile-store.mjs';
 import {EyeSelector,DwellSelector} from './eye-selection.mjs';
+import {screenSummary,chooseCamera} from './screen-profile.mjs';
 const $=id=>document.getElementById(id),selector=new EyeSelector(),dwell=new DwellSelector(600,{pauseMs:300});
 const fanItems=[['captured_power','Power toggle'],['captured_level_down','Speed down'],['captured_level_up','Speed up'],['captured_mode','Change mode'],['captured_silence','Silence'],['captured_turn','Turn'],['captured_timer','Timer'],['pause','Pause eye controls'],['switch-device','Switch to TV']];
 let token='',connected=false,index=0,sending=false,paused=false,stream,worker,ready=false,inFlight=false,lastFrame=0,lastFeature=0,lastVideoTime=-1,frameLoop=0,calibrating=null,calStart=0,cameraGeneration=0,setupStep='welcome';
@@ -82,6 +83,7 @@ function updateProfileUI(){
   button.onclick=()=>{try{stop();profiles.select(saved.id);updateProfileUI();$('profile-dialog').close();$('calibration').textContent='Start the camera.';resumeSetup();}catch(e){$('profile-message').textContent=e.message;}};
   $('profile-list').append(button);
  }
+ globalThis.handsFreeProfileChanged?.(profile);
 }
 function openProfiles(){if($('setup-dialog').open)$('setup-dialog').close();cancel();updateProfileUI();$('profile-message').textContent=profiles.error;$('profile-dialog').showModal();}
 function saveCalibration(){
@@ -162,7 +164,14 @@ $('stop').onclick=()=>{stop();if($('setup-dialog').open)goSetup('camera');};
 $('start').onclick=async()=>{
  stop();if($('setup-dialog').open)goSetup('camera');const generation=cameraGeneration;
  if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){$('tracking').textContent='Camera requires HTTPS, or localhost on this computer. Open the secure website address on a tablet.';return;}
- try{$('tracking').textContent='Allow camera access.';const acquired=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480},frameRate:{ideal:20,max:30}},audio:false});if(generation!==cameraGeneration){acquired.getTracks().forEach(t=>t.stop());return;}stream=acquired;$('video').srcObject=stream;await $('video').play();if(generation!==cameraGeneration)return;document.querySelector('.camera-preview').classList.add('live');restoreCalibration();worker=new Worker('/vision-worker.mjs',{type:'module'});$('tracking').textContent='Loading local eye analysis…';worker.onmessage=({data})=>{
+ try{$('tracking').textContent='Allow camera access.';const size={width:{ideal:640},height:{ideal:480},frameRate:{ideal:20,max:30}},open=camera=>navigator.mediaDevices.getUserMedia({video:camera?{...size,deviceId:{exact:camera}}:{...size,facingMode:'user'},audio:false});
+  // The camera is the profile's own: the one picked for it in Screen control, or, with none
+  // picked, the better camera when it is plugged in (see chooseCamera). A browser names no
+  // cameras before the camera has been allowed once; then the first one opened may be swapped.
+  let wanted=await profileCamera(),acquired;
+  try{acquired=await open(wanted.named?wanted.deviceId:'');}catch(e){if(!wanted.named||!wanted.deviceId||e.name==='NotAllowedError')throw e;acquired=await open('');}
+  if(!wanted.named){wanted=await profileCamera();if(wanted.named&&wanted.deviceId&&wanted.deviceId!==acquired.getVideoTracks()[0].getSettings().deviceId){try{const better=await open(wanted.deviceId);acquired.getTracks().forEach(t=>t.stop());acquired=better;}catch{}}}
+  if(generation!==cameraGeneration){acquired.getTracks().forEach(t=>t.stop());return;}stream=acquired;$('video').srcObject=stream;await $('video').play();if(generation!==cameraGeneration)return;document.querySelector('.camera-preview').classList.add('live');restoreCalibration();worker=new Worker('/vision-worker.mjs',{type:'module'});$('tracking').textContent='Loading local eye analysis…';worker.onmessage=({data})=>{
   if(data.type==='ready'){ready=true;lastFeature=performance.now();$('tracking').textContent=selector.calibration?'Saved calibration loaded.':'Camera ready · calibration needed';if($('setup-dialog').open)renderSetup();return;}
   if(data.type==='error'){stop();$('tracking').textContent='Eye analysis failed: '+data.message;return;}
   if(data.type==='feature'){
@@ -181,6 +190,13 @@ $('start').onclick=async()=>{
  }catch(e){if(generation===cameraGeneration){stop();$('tracking').textContent='Camera unavailable: '+e.message;}}
 };
 
+async function profileCamera(){
+ try{
+  const list=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput'&&d.deviceId).map(d=>({deviceId:d.deviceId,label:d.label||''}));
+  const saved=screenSummary(window.localStorage,profiles.active?.name||'');
+  return {named:list.some(d=>d.label),deviceId:chooseCamera(list,{saved:saved.camera,calibrated:saved.calibrated}).deviceId};
+ }catch{return {named:false,deviceId:''};}
+}
 // Setup blocks device activation and keeps saved calibration until a replacement succeeds.
 const directions=['center','left','right'];
 

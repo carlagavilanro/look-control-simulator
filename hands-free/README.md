@@ -1,6 +1,6 @@
 # Hands Free
 
-Current Windows companion: **0.4.40**.
+Current Windows companion: **0.4.41**.
 
 Hands Free combines local camera-based eye control, a Windows desktop companion,
 and separate ESP32 infrared receiver/transmitter firmware. The complete source,

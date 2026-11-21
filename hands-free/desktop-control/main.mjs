@@ -69,7 +69,7 @@ async function start(){
  protocol.handle('handsfree',request=>{
   const u=new URL(request.url);let name;try{name=decodeURIComponent(u.pathname);}catch{return new Response('Invalid path',{status:400});}
   if(u.host!=='control'||name.includes('..')||name.includes('\\'))return new Response('Not found',{status:404});
-  const allowed=/^\/(screen(?:-app|-gaze|-worker|-eye-overlay|-positions|-targets|-camera|-typing|-eye-crop|-iris-detail|-face-detail)?\.(?:html|css|mjs)|vendor\/[a-zA-Z0-9_.-]+)$/;
+  const allowed=/^\/(screen(?:-app|-gaze|-worker|-eye-overlay|-positions|-targets|-camera|-profile|-typing|-eye-crop|-iris-detail|-face-detail)?\.(?:html|css|mjs)|vendor\/[a-zA-Z0-9_.-]+)$/;
   if(!allowed.test(name))return new Response('Not found',{status:404});
   return net.fetch(pathToFileURL(path.join(assets,name.slice(1))).href);
  });
@@ -180,7 +180,18 @@ async function start(){
  const deviceLink=createDeviceLink({site:DEVICE_SITE,fetch:(url,options)=>net.fetch(url,options),store:{
   read:async()=>safeStorage.isEncryptionAvailable()?safeStorage.decryptString(await fs.promises.readFile(keyFile)):null,
   write:async value=>{if(value===null){await fs.promises.rm(keyFile,{force:true});return;}if(!safeStorage.isEncryptionAvailable())throw Error('This computer cannot protect the key.');await fs.promises.writeFile(keyFile,safeStorage.encryptString(value));}}});
- ipcMain.handle('screen:devices',async(e,action,payload)=>{trusted(e);return deviceLink.call(String(action),payload);});
+ ipcMain.handle('screen:devices',async(e,action,payload)=>{
+  trusted(e);
+  // The Setup page of the website, in the person's own browser, with the app's link code filled
+  // in (after the #, which is not sent to the website). Linking still takes the Link button there.
+  if(action==='open-link'){
+   const link=await deviceLink.call('link');
+   if(!link.ok||link.linked||!link.page||!link.page.startsWith(DEVICE_SITE+'/setup#link='))return link;
+   if(!dryRun)await shell.openExternal(link.page);
+   return {ok:true,code:link.code,site:link.site,opened:true};
+  }
+  return deviceLink.call(String(action),payload);
+ });
  ipcMain.handle('screen:site',async(e,site,query)=>{trusted(e);const url=siteUrl(site,query);accessibleWindow=null;if(dryRun)return {dryRun:true,url};await shell.openExternal(url);return true;});
  globalShortcut.register('CommandOrControl+Alt+P',()=>{if(gate.armed)pause();else win.webContents.send('screen:toggle');});
  globalShortcut.register('CommandOrControl+Alt+Q',()=>app.quit());

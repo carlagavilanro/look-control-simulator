@@ -1,4 +1,49 @@
-CURRENT VERSION 0.4.40 - ON THE WEBSITE, ITS OWN PAGES CAN BE USED BY EYE
+CURRENT VERSION 0.4.41 - LINKING THIS APP WORKS; THE PROFILE KEEPS ITS CAMERA
+LINKING THIS APP TO YOUR DEVICES (this is why "Use saved devices" did
+not work in 0.4.39 and 0.4.40)
+The app is linked to the website once, with a six-digit code. Until now
+it made a NEW code every time "Use saved devices" was opened, forgot the
+one before, and only waited for a code while the code's screen was
+showing. Pausing or leaving that screen to go and type the code was
+enough for the link never to finish.
+  - One code now stays until it is used (ten minutes).
+  - The app keeps asking whether the code has been typed, whatever is
+    on its screen, and says "This app is now linked to your devices".
+  - While paused, the bar at the top still shows the code.
+  - New button "Open the website to link": opens the Setup page in your
+    browser with the code already filled in. Press Link there. (Sign in
+    first if the site asks; the code can also be typed by hand.)
+  - "I have linked it" checks again at once.
+Linking is done once. The key is kept on this computer.
+
+THE PROFILE KEEPS ITS CAMERA AND OPTIONS
+Under the profile's name the app now keeps, besides the calibrations:
+  - the camera picked from the Camera list (before, a camera was kept
+    only inside a finished calibration; picked and not yet calibrated,
+    it was "Default camera" again next time);
+  - the resolution and tracking mode chosen with it;
+  - the options under "More setup options", the calibration length,
+    the keyboard size, autocorrect and the place of the reading button.
+    These used to be one set for everybody on the computer.
+When no camera was ever picked for a profile and the EMEET camera (or
+another camera with 4K in its name) is plugged in, that camera is used
+instead of the laptop's own. A line under the Camera list says so. A
+calibration made with the other camera stays saved; the new camera gets
+its own. Picking a camera from the list always wins and is remembered.
+
+ON THE WEBSITE (control.carla.codes)
+  - "Start eye control" on the Devices page opens that page under the
+    eye pointer, with the profile's camera and calibration. The line
+    under the buttons says what the profile has saved.
+  - The Devices page's own left / right control uses the same camera.
+
+TESTED: the linking steps against the real website program (same code
+on a second visit, a code typed while the app shows something else, two
+questions at once); camera choice and saved options in a browser with
+two stand-in cameras. NOT tested: this app on Windows with the new
+buttons, and a real EMEET camera in a browser.
+
+PREVIOUS VERSION 0.4.40 - ON THE WEBSITE, ITS OWN PAGES CAN BE USED BY EYE
 Nothing changes in this Windows app. The change is for eye control in a
 browser, at control.carla.codes -> Screen control.
 

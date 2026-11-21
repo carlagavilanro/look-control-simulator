@@ -58,3 +58,40 @@ test('what the page passes on is cut to size, and the key goes only to the site 
  // A saved value that is not a key is ignored.
  const odd=createDeviceLink({site:'https://control.example',store:memory('not a key'),fetch:async()=>{throw Error('unused');}});assert.equal((await odd.call('get')).unlinked,true);
 });
+// 0.4.41. The first try at linking the real app failed: every look at the devices made a new code
+// and dropped the one before, and the app only waited for a code while its screen was showing.
+test('the link code stays the same until it is used, and a code typed while the app looked elsewhere is taken up',async t=>{
+ const {base,page}=await site(t),store=memory(),link=createDeviceLink({site:base,fetch,store});
+ const first=await link.call('link'),second=await link.call('link');
+ assert.equal(second.code,first.code,'the same code on a second visit');assert.equal(first.page,base+'/setup#link='+first.code);
+ assert.equal((await link.call('get')).unlinked,true,'not linked yet');
+ // Typed on the website while the app shows something else. The next thing asked finds the key.
+ assert.equal((await page('/api/pair/approve','POST',{code:first.code})).status,200);
+ const state=await link.call('get');assert.equal(state.ok,true);assert.equal(state.appliances[0].name,'Fan');assert.equal(store.value.length,43);
+ // Asked for a code again, a linked app says it is linked and makes none.
+ const after=await link.call('link');assert.equal(after.linked,true);assert.equal('code' in after,false);
+ assert.equal((await link.call('link-status')).linked,true);
+});
+test('two questions at once about the code do not lose the key',async t=>{
+ const {base,page}=await site(t),store=memory(),link=createDeviceLink({site:base,fetch,store});
+ const started=await link.call('link');await page('/api/pair/approve','POST',{code:started.code});
+ const answers=await Promise.all([link.call('link-status'),link.call('link-status'),link.call('link'),link.call('get')]);
+ assert.equal(answers[0].linked,true);assert.equal(answers[1].linked,true);assert.equal(answers[2].linked,true);assert.equal(answers[3].ok,true);
+ assert.equal(store.writes.length,1);
+});
+test('a code that has ended is replaced, and one that is running survives a website that cannot be reached',async()=>{
+ let time=1000,calls=0,down=false;
+ const fetchStub=async(url,options)=>{
+  if(down)throw Error('offline');
+  if(url.endsWith('/api/pair/start')){calls++;return {ok:true,status:200,json:async()=>({code:String(100000+calls),secret:'s'+calls,expires_in:600})};}
+  return {ok:false,status:202,json:async()=>({status:'waiting'})};
+ };
+ const link=createDeviceLink({site:'https://control.example',fetch:fetchStub,store:memory(),now:()=>time});
+ assert.equal((await link.call('link')).code,'100001');
+ time+=5*60*1000;assert.equal((await link.call('link')).code,'100001','still the same after five minutes');
+ time+=4.5*60*1000;assert.equal((await link.call('link')).code,'100002','a new one when under a minute is left');
+ down=true;time+=60*1000;
+ const kept=await link.call('link');assert.equal(kept.code,'100002');
+ assert.equal((await link.call('link-status')).ok,false);assert.equal((await link.call('link')).code,'100002','an unreachable website does not end the code');
+ time+=11*60*1000;assert.equal((await link.call('link')).ok,false);assert.equal((await link.call('link-status')).expired,true);
+});

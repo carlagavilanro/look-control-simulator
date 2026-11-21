@@ -5,8 +5,12 @@ import {DEFAULT_EYE_REGIONS,eyeRegionRect,previewEyePoint,validEyeRegions,marked
 import {WordSuggestions,insertText,completeWord} from './screen-typing.mjs';
 import {MAX_HEAD_POSITIONS,savedHeadPositions,HeadPositionSelector,resetDwellForPosition,estimateHeadPositions,nextHeadPosition,HeadCaptureGuide,HeadReturnGuide,calibrationReturnPlan,calibrationReturnFeedback} from './screen-positions.mjs';
 import {focusChoice,visibleFocusTargets,coveredFocusTargets,controlNames,readingOrder,CHOICES} from './screen-targets.mjs';
+import {CALIBRATION_KEY,readProfile,writeProfile,chooseCamera} from './screen-profile.mjs';
 const $=id=>document.getElementById(id),desktop=window.desktopControl,pointer=new GazePointer(),fixation=new FixationGate(),intent=new TargetIntent(),dwell=new TargetDwell(600,{pauseMs:300,releaseMs:200});
-const KEY='hands-free.screen-calibration.v1';
+const KEY=CALIBRATION_KEY;
+// Where the profile's camera and options are kept (see screen-profile.mjs). A browser that
+// refuses storage gives none; nothing is saved then, and nothing fails.
+const kept=(()=>{try{return window.localStorage;}catch{return null;}})();
 let stream,worker,ready=false,inFlight=false,lastVideo=-1,lastFrame=0,lastSample=0,lastReceived=0,generation=0,sessionSetup=null;
 let model=null,validation=null,stage='welcome',capture=null,active=false,busy=false,blockedUntil=0,items=[],text='',uppercase=false;
 let rect={x:0,y:0,w:1,h:1},depth=0,snapshot=null,lastHeartbeat=0,layout={columns:3,rows:3,capacity:9},pauseTask=Promise.resolve(),uiRevision=0;
@@ -30,7 +34,7 @@ const drafts={youtube:'',google:'',app:'',launch:'',ask:''};
 let ask=null,waitingFor=null,linkingApp=false;
 // site: in a browser on the website, the site's own pages (Devices, Set up a device) take the
 // place of the practice page and are used with the eye pointer. See screen-site.mjs.
-let site=null;
+let site=null,arrivedForSite=false;
 const composerButtons=['draft-space','draft-delete','draft-submit','draft-enter','draft-options','draft-compact','draft-hide','draft-pause','word-0','word-1','word-2','draft-undo'];
 let wordEngine=new WordSuggestions(),wordChoices=[],typingUndo=null,autocorrect=true,typingRegion=null;
 try{autocorrect=localStorage.getItem('hands-free.autocorrect')!=='off';}catch{}
@@ -455,10 +459,58 @@ $('lid-input').onchange=()=>{try{localStorage.setItem('hands-free.lid-input',$('
 try{$('dim-capture').checked=localStorage.getItem('hands-free.dim-capture')==='1';}catch{}
 document.body.classList.toggle('dim-capture',$('dim-capture').checked);
 $('dim-capture').onchange=()=>{document.body.classList.toggle('dim-capture',$('dim-capture').checked);try{localStorage.setItem('hands-free.dim-capture',$('dim-capture').checked?'1':'0');}catch{}};
+// ---- What the profile keeps besides its calibrations ----------------------------------------------
+// The options above, the keyboard's, and the camera picked from the list are saved under the
+// profile's name as they are changed, and come back when that profile is chosen. Until 0.4.41
+// the options were one set for everybody on the computer, and a camera was kept only inside a
+// finished calibration: picked and not yet calibrated, it was "Default camera" again next time.
+const OPTION_BOXES={dimCapture:'dim-capture',autoRecentre:'auto-recentre',headMove:'head-move',lidInput:'lid-input'};
+function currentOptions(){return {...Object.fromEntries(Object.entries(OPTION_BOXES).map(([key,id])=>[key,$(id).checked])),calibrationMode:$('calibration-mode').value,keyboardLayout,autocorrect,readingDock};}
+function rememberOptions(){if(profileKey())writeProfile(kept,profileKey(),{controls:currentOptions(),setup:{mode:$('camera-mode').value,tracking:$('tracking-mode').value}});}
+function applyOptions(saved){
+ if(!saved)return;
+ for(const [key,id] of Object.entries(OPTION_BOXES))if(typeof saved[key]==='boolean')$(id).checked=saved[key];
+ document.body.classList.toggle('dim-capture',$('dim-capture').checked);
+ if(!recentreOn()){recentre.reset();gazeTrail=[];recentreTold={x:0,y:0};}
+ if(saved.calibrationMode)$('calibration-mode').value=saved.calibrationMode;
+ if(saved.keyboardLayout)keyboardLayout=saved.keyboardLayout;
+ if(typeof saved.autocorrect==='boolean')autocorrect=saved.autocorrect;
+ if(saved.readingDock)readingDock=saved.readingDock;
+}
+for(const id of [...Object.values(OPTION_BOXES),'calibration-mode'])$(id).addEventListener('change',rememberOptions);
+// The camera picked from the list, by hand. "Default camera" is a pick too.
+function rememberCamera(){
+ if(!profileKey())return;
+ const option=$('camera-device').selectedOptions[0];
+ writeProfile(kept,profileKey(),{camera:{deviceId:$('camera-device').value,label:$('camera-device').value?option?.textContent||'':''}});
+}
+let cameraNote='',pickedForProfile=false,connectedCameras=[];
+// Puts the profile's options back, and its camera: the one picked for it, or, with none picked,
+// the better camera when it is plugged in (see chooseCamera). The camera of a saved calibration is
+// put back by cameraPreferences with everything else the calibration was made with, as before;
+// this only steps in when another camera is to be used.
+function applyProfile(options=true){
+ const profile=readProfile(kept,profileKey());if(options)applyOptions(profile.controls);
+ cameraNote='';if(stream||!profileKey())return;
+ const record=rootSaved(),made=record?.setup||null;
+ const pick=chooseCamera(connectedCameras,{saved:profile.camera,calibrated:made?{deviceId:made.deviceId,label:made.cameraLabel}:null});
+ if(pick.missing)cameraNote=pick.missing+' is not connected. Plug it in and press Refresh cameras, or go on with the camera shown.';
+ if(made&&(pick.reason==='calibration'||!pick.deviceId||pick.deviceId===made.deviceId)){
+  // Back to the calibration's own camera, when it was this function that had moved away from it.
+  if(pickedForProfile){pickedForProfile=false;cameraChoiceDirty=false;chosenCameraSettings=null;}
+  return;
+ }
+ if(profile.setup){$('camera-mode').value=profile.setup.mode;$('tracking-mode').value=profile.setup.tracking;trackingUI();}
+ if(!pick.deviceId)return;
+ if(!Array.from($('camera-device').options).some(o=>o.value===pick.deviceId))$('camera-device').add(new Option(pick.label||'Saved camera',pick.deviceId));
+ $('camera-device').value=pick.deviceId;
+ if(made){cameraChoiceDirty=true;chosenCameraSettings=null;pickedForProfile=true;}
+ if(pick.reason==='fancy')cameraNote=(pick.label||'The better camera')+' is plugged in and will be used'+(made?', with its own calibration. The calibration made with '+(made.cameraLabel||'the other camera')+' stays saved.':'.')+' Another camera can be chosen above; the choice is kept for this profile.';
+}
 async function listCameras(requestPermission=false){
  try{const chosen=$('camera-device').value;let devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
   if(requestPermission&&!stream&&(!devices.length||devices.every(d=>!d.label))){const temporary=await navigator.mediaDevices.getUserMedia({video:true,audio:false});temporary.getTracks().forEach(t=>t.stop());devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');}
-  devices=devices.filter(d=>d.deviceId);
+  devices=devices.filter(d=>d.deviceId);connectedCameras=devices.map(d=>({deviceId:d.deviceId,label:d.label||''}));
   $('camera-device').replaceChildren(new Option('Default camera',''),...devices.map((d,i)=>new Option(d.label||`Camera ${i+1}`,d.deviceId)));
   if(devices.some(d=>d.deviceId===chosen))$('camera-device').value=chosen;
  }catch{report('Camera list unavailable. Check Windows camera permission.');}
@@ -487,13 +539,13 @@ function finishCameraPreview(){
  clearTimeout(cameraPreviewTimer);cameraPreviewTimer=null;cameraChoiceDirty=true;stage='camera-ready';$('workspace').hidden=true;$('welcome').hidden=false;$('camera').hidden=true;$('tracking-info').hidden=true;refreshProfile();const saved=loadSaved();report(saved&&sameSetup(saved.setup,sessionSetup)?'Framing kept. This lens’s saved calibration is ready.':'Framing kept. Calibrate this lens when ready.');
 }
 $('camera-preview').onclick=()=>startCamera('camera');$('camera-use').onclick=finishCameraPreview;$('camera-refresh').onclick=()=>listCameras(true);
-for(const id of ['camera-device','camera-mode','camera-lens','camera-remote-zoom'])$(id).onchange=()=>{cameraChoiceDirty=true;chosenCameraSettings=null;refreshProfile();
+for(const id of ['camera-device','camera-mode','camera-lens','camera-remote-zoom'])$(id).onchange=()=>{cameraChoiceDirty=true;chosenCameraSettings=null;pickedForProfile=false;if(id==='camera-device'){cameraNote='';rememberCamera();}rememberOptions();refreshProfile();
  // The line under Tracking described the saved calibration and went on doing so, unlabelled, with another camera chosen.
  if(savedCameraText)$('camera-saved').textContent=`Your saved calibration was made with: ${savedCameraText}. Another camera or resolution gets its own calibration.`;};
 $('tracking-mode').onchange=()=>{
  cameraChoiceDirty=true;chosenCameraSettings=null;const saved=loadSaved()?.setup;
  if(saved){chosenCameraSettings=saved;frameCrop=saved.crop||{zoom:1,x:.5,y:.5};if(saved.eyeRegions)eyeRegions=saved.eyeRegions.map(r=>({...r}));$('camera-mode').value=saved.cameraMode||'auto';}
- trackingUI();refreshProfile();
+ trackingUI();rememberOptions();refreshProfile();
 };
 $('camera-zoom').oninput=async()=>{
  if(!stream||stage!=='camera-preview'||lensBusy)return;
@@ -501,7 +553,7 @@ $('camera-zoom').oninput=async()=>{
  try{await zoomQueue.set(Number($('camera-zoom').value));if(stage==='camera-preview')cameraZoomControls(true);}catch{report('Camera rejected this zoom. Use Windows settings or try 1080p.');}finally{cameraBusy(false);}
 };
 $('camera-zoom').onchange=async()=>{try{await zoomQueue?.running;}catch{}if(stage==='camera-preview')cameraZoomControls();};
-await listCameras();navigator.mediaDevices?.addEventListener('devicechange',()=>listCameras());
+await listCameras();navigator.mediaDevices?.addEventListener('devicechange',async()=>{await listCameras();if(!stream&&stage==='welcome'){applyProfile(false);refreshProfile();}});
 
 function rootSaved(){
  const native=nativeProfiles.find(p=>p.name.toLocaleLowerCase()===profileKey())?.record;
@@ -538,6 +590,7 @@ async function saveModel(updatePosition=true){
 }
 function refreshProfile(){
  const saved=loadSaved(),known=saved&&validModel(saved.model);cameraPreferences(saved);
+ if(cameraNote)$('camera-saved').textContent=cameraNote;else if(!savedCameraText&&!saved?.setup)$('camera-saved').textContent='';
  // A close-up map made by an earlier tracker reads the eyes differently. Offer a
  // new calibration instead of quietly pointing with the old one.
  const outdated=known&&saved.setup?.trackingMode==='eyes'&&(saved.setup.eyeTracker||1)!==EYE_TRACKER_REVISION,usable=known&&!outdated;
@@ -701,10 +754,10 @@ async function finishPositions(test=false){
 }
 function cancelPositions(){restorePositionBackup();positionSession=null;$('positions-dialog').close();backToSetup();}
 try{const p=JSON.parse(localStorage.getItem('look-control.profiles.v1')||'{}');$('person').value=p.profiles?.find(x=>x.id===p.activeId)?.name||localStorage.getItem('hands-free.screen-name')||'';}catch{}
-$('person').oninput=()=>{cameraChoiceDirty=false;chosenCameraSettings=null;refreshProfile();};
+$('person').oninput=()=>{cameraChoiceDirty=false;chosenCameraSettings=null;pickedForProfile=false;applyProfile();refreshProfile();};
 $('start').disabled=true;
 try{if(desktop?.loadCalibrations){const saved=await desktop.loadCalibrations();nativeProfiles=saved.profiles||[];if(saved.lastName)$('person').value=saved.lastName;}}catch{report('Saved profiles could not be read. You can still start a new calibration.');}
-$('start').disabled=false;refreshProfile();
+$('start').disabled=false;applyProfile();refreshProfile();
 $('forget').onclick=async()=>{
  await pause(false);
  try{
@@ -722,8 +775,16 @@ async function startCamera(mode='resume'){
   const keepStream=stage==='camera-ready'&&stream&&sessionSetup&&$('camera-device').value===sessionSetup.deviceId&&$('camera-mode').value===sessionSetup.cameraMode&&sameSetup(sessionSetup,setupStamp());
   await pause(false);clearTestMode();if(!keepStream)stopCamera();else{clearTimeout(cameraPreviewTimer);cameraPreviewTimer=null;}const current=++generation;model=null;validation=null;saveNotice='';$('save-status').textContent='';
   try{localStorage.setItem('hands-free.screen-name',$('person').value.trim());}catch{}
+  rememberOptions();
   if(!isSecureContext||!navigator.mediaDevices?.getUserMedia)throw Error('Use HTTPS or localhost to enable the camera.');
   report('Allow the selected camera when asked.');
+  // "Default camera" with no saved calibration to go by: the profile's camera is used, or the
+  // better camera when one is plugged in. A browser names no cameras before the camera has been
+  // allowed once, so the names are asked for here (this is when the browser asks permission).
+  if(!keepStream&&!$('camera-device').value&&!(mode!=='train'&&mode!=='camera'&&!cameraChoiceDirty&&loadSaved()?.setup)){
+   await listCameras(true);if(current!==generation)return;
+   applyProfile(false);if(cameraNote)report(cameraNote);
+  }
   const saved=loadSaved(),reuse=mode!=='train'&&mode!=='camera'&&!cameraChoiceDirty&&saved?.setup,balanced=$('camera-mode').value==='balanced';
   const chosen=$('camera-device').value||reuse?.deviceId||'';
   trackingRuns.clear();cameraProbe=[];frameTimes=[];cameraStats=null;cameraProbeDone=!!reuse||$('camera-mode').value!=='auto';alignmentError='';
@@ -1419,7 +1480,7 @@ function recordTracking(prediction,view,now){
 }
 function trackingReport(){
  const stamp=JSON.stringify(model);let hash=2166136261;for(let i=0;i<stamp.length;i++)hash=Math.imul(hash^stamp.charCodeAt(i),16777619);
- return {version:'0.4.40',filter:{movementConfirmationMs:120,maximumInTargetPauseMs:300,medianWindowMs:150,selectionHoldMs:600,intentWindowMs:240},headEstimate,activePositionId:positionId,savedHeadPositions:headPositions.length,mapId:(hash>>>0).toString(16),camera:cameraStats,viewport:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},
+ return {version:'0.4.41',filter:{movementConfirmationMs:120,maximumInTargetPauseMs:300,medianWindowMs:150,selectionHoldMs:600,intentWindowMs:240},headEstimate,activePositionId:positionId,savedHeadPositions:headPositions.length,mapId:(hash>>>0).toString(16),camera:cameraStats,viewport:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},
   note:'Local session diagnostics. Movement between frames includes intentional eye movement; these are not target accuracy results. These are pointer stability measurements, not identified microsaccades or proof of gaze accuracy. No images, typed text, profile name, or raw eye features included.',
   runs:Object.fromEntries([...trackingRuns].map(([mode,rows])=>{
    const r=rows.filter(x=>performance.now()-x.at<=120000),rejected={};for(const x of r)if(!x.usable){const k=x.recovering?'recovering':x.reason;rejected[k]=(rejected[k]||0)+1;}
@@ -1679,7 +1740,7 @@ function deviceScreen(next){hideComposer();stage=next;document.body.classList.re
 async function loadDevices(again){
  if(!deviceHub){tiles('Devices',[entry('Back to tasks',()=>menu())]);report('Devices need a newer version of the Windows app.');return null;}
  const state=await deviceHub('get');
- if(state.ok&&Array.isArray(state.appliances))return state;
+ if(state.ok&&Array.isArray(state.appliances)){linkWait=null;return state;}
  if(state.unlinked){await linkApp(again);return null;}
  tiles('Devices',[entry('Try again',again),entry('Back to tasks',()=>menu())]);report(state.message||'The website could not be reached.');return null;
 }
@@ -1743,21 +1804,46 @@ setInterval(async()=>{
  }else if(!state.learning){waitingFor=null;run(()=>deviceEdit(w.id,'No signal arrived in time. Nothing was recorded.'));}
  else $('hint').textContent='Waiting for the receiver · '+state.learning.secondsLeft+' seconds left';
 },1000);
-// The Windows app is linked to the website once, by a code typed there.
+// The Windows app is linked to the website once, by a code typed there. The code stays the same
+// until it is used, and the app goes on asking whether it has been typed whatever is on screen:
+// typing it means leaving this screen (pausing, or looking at the browser), and until 0.4.41
+// that was when the app stopped asking, and the next look at the devices made another code.
+// linkWait: {code, site, again}, from the moment a code is showing until the app is linked.
+let linkWait=null;
+const linkLine=()=>linkWait?'Link code '+linkWait.code+': type it at '+linkWait.site+', under Setup, Link code.':'';
 async function linkApp(again){
  deviceScreen('device-link');
  const started=await deviceHub('link');
+ if(started.linked){linkWait=null;await again();return;}
  if(!started.ok){tiles('Link this app',[entry('Try again',()=>linkApp(again)),entry('Back to tasks',()=>menu())]);report(started.message||'The website could not be reached.');return;}
- const code=started.code.slice(0,3)+' '+started.code.slice(3),how='Sign in at '+started.site+', open Setup and type '+code+' under Link code.';
- tiles('Link code '+code,[entry('Code '+code,()=>report(how)),entry('Back to tasks',()=>menu())]);report('This app is not linked to your devices yet. '+how);
- linkingApp={again,busy:false};
+ const code=started.code.slice(0,3)+' '+started.code.slice(3),how='Sign in at '+started.site+', open Setup and type '+code+' under Link code. The code stays the same until it is used.';
+ linkWait={code,site:started.site,again,busy:false};linkingApp=true;
+ tiles('Link code '+code,[
+  entry('Open the website to link',()=>openLinkPage(),'Opens Setup in your browser with the code filled in. Press Link there.'),
+  entry('Code '+code,()=>report(how),'Or type it yourself at '+started.site+', under Setup'),
+  entry('I have linked it',()=>linkApp(again),'Check again now'),
+  entry('Back to tasks',()=>menu())]);
+ report('This app is not linked to your devices yet. '+how);
+}
+// The Setup page in the person's browser, with the code filled in. The app then shows the screen
+// behind it, so Link can be pressed there by eye (Click a video or button) or by hand.
+async function openLinkPage(){
+ const opened=await deviceHub('open-link');
+ if(opened.linked){const again=linkWait?.again;linkWait=null;if(again)await again();else menu();return;}
+ if(!opened.ok){report(opened.message||'The browser could not be opened. Type the code at the website instead.');return;}
+ browse();report('Setup is open in your browser with the code filled in. Press Link there. '+linkLine());
 }
 setInterval(async()=>{
- const l=linkingApp;if(!l||l.busy||busy||stage!=='device-link')return;
+ const l=linkWait;if(!l||l.busy)return;
  l.busy=true;const result=await deviceHub('link-status');l.busy=false;
- if(linkingApp!==l||stage!=='device-link'||busy)return;
- if(result.linked){linkingApp=false;run(async()=>{await l.again();report('This app is now linked to your devices.');});}
- else if(result.expired){linkingApp=false;run(()=>linkApp(l.again));}
+ if(linkWait!==l)return;
+ if(result.linked){
+  linkWait=null;
+  // On the code's own screen the devices open by themselves; anywhere else a line says so.
+  if(stage==='device-link'&&!busy)run(async()=>{await l.again();report('This app is now linked to your devices.');});
+  else report('This app is now linked to your devices. Choose Use saved devices.');
+ }
+ else if(result.expired){linkWait=null;if(stage==='device-link'&&!busy)run(()=>linkApp(l.again));}
 },3000);
 function syncTypingRegion(){
  const top=!$('composer').hidden&&![...document.querySelectorAll('dialog')].some(d=>d.open)?Math.floor($('typing-dock').getBoundingClientRect().top):null;
@@ -1825,7 +1911,7 @@ function directKeyboard(grid){
  }
  $('typed').textContent=directEcho?'Typed: '+directEcho:'';$('hint').textContent='';
 }
-function setKeyboardLayout(value){keyboardLayout=value;try{localStorage.setItem('hands-free.keyboard-layout',value);}catch{}keyboard();}
+function setKeyboardLayout(value){keyboardLayout=value;try{localStorage.setItem('hands-free.keyboard-layout',value);}catch{}rememberOptions();keyboard();}
 function flatKeyboard(){
  stage=keyboardPage==='letters'?'keyboard':'symbols';letterGroup=null;
  const characters=keyboardPage==='letters'?'QWERTYUIOPASDFGHJKL.ZXCVBNM?':'1234567890@/:_-+?!,.;()\'"&=%#';
@@ -1867,7 +1953,7 @@ function textMenu(){stage='text-options';tiles('Text options',[
  entry('Clear this draft',()=>{setDraft('');keyboard();}),
  destination==='ask'?entry('Cancel',()=>ask.cancel()):destination==='app'?entry('Type + Enter',()=>submitDraft(true),'Type this draft and submit it in one action'):destination==='launch'?entry('Back to Apps & keys',()=>appsMenu()):entry(destination==='youtube'?'Open YouTube home':'Open Google home',()=>openSite(destination),'Open the website without searching'),
  entry(keyboardLayout==='compact'?'Larger keys':'Compact keyboard',()=>setKeyboardLayout(keyboardLayout==='compact'?'large':'compact')),
- entry('Autocorrect: '+(autocorrect?'on':'off'),()=>{autocorrect=!autocorrect;try{localStorage.setItem('hands-free.autocorrect',autocorrect?'on':'off');}catch{}textMenu();})],false,0,{columns:3,rows:2});}
+ entry('Autocorrect: '+(autocorrect?'on':'off'),()=>{autocorrect=!autocorrect;try{localStorage.setItem('hands-free.autocorrect',autocorrect?'on':'off');}catch{}rememberOptions();textMenu();})],false,0,{columns:3,rows:2});}
 function keyMenu(){hideComposer();stage='keys';document.body.classList.remove('viewing');tiles('More controls',[
  ...[['Next field (Tab)','tab'],['Previous field','shifttab'],['Address bar','address'],['Browser back','back']].map(([label,key])=>entry(label,async()=>{await command({type:'key',key});browse();})),
  ...(stream&&validModel(model)?[entry('Quick alignment · 1 dot',()=>beginCapture('offset'),'Correct a steady offset, then measure seven fresh checks')]:[]),
@@ -1878,7 +1964,7 @@ function settingsMenu(){stage='settings';tiles('Keys & settings',[
  entry(active?'Check accuracy':canControl()?'Resume eye control':'Set up eye control',()=>active?beginCapture('check'):canControl()?activate():backToSetup()),...(stream&&validModel(model)?[entry('Saved head positions',()=>openHeadPositions(),'Add nearby positions once; estimate the positions between them'),entry('Test gaze pointer',()=>previewGaze()),entry('Reading button position',()=>readingPositionMenu()),entry('Refine accuracy · 9 points',()=>beginCapture('refine')),diagnosticsEntry(settingsMenu)]:[]),entry('Device controls',()=>openSite('home')),entry('Back to tasks',()=>menu())]);}
 function readingPositionMenu(){stage='reading-position';tiles('Reading button position',[
  ...['top-left','top-right','bottom-left','bottom-right'].map(dock=>entry(dock.replace('-',' '),()=>{
-  readingDock=dock;try{localStorage.setItem('hands-free.reading-dock',dock);}catch{}
+  readingDock=dock;try{localStorage.setItem('hands-free.reading-dock',dock);}catch{}rememberOptions();
   browse();return enterReading();
  }))]);}
 async function startGrid(after=browse,purpose='button'){
@@ -1911,6 +1997,8 @@ async function activate(test=false){
  if(revision!==uiRevision){await desktop?.pause();return;}
  active=true;selectionsPaused=false;headSelector.reset();document.body.classList.add('active');setCameraPreview(false);$('tracking-info').hidden=true;fixation.reset();intent.reset();dwell.reset();lastHeartbeat=0;updateSelectionMode();
  menu();report(testing?'Test eye control is on. Choose a task and hold its button for 0.6 seconds.':'Eye control is on. '+saveNotice);
+ // Sent here by the Devices page to use the website with the eyes: open it, once.
+ if(arrivedForSite&&site){arrivedForSite=false;browse();report('Eye control is on. Look at a button on the page and hold. '+saveNotice);}
 }
 async function pause(show=true){
  resetReturnGuide();
@@ -1924,7 +2012,7 @@ async function pause(show=true){
  if(show){
   hideComposer();
   $('result-dialog').close();$('snapshot').hidden=true;$('cal-dot').hidden=true;
-  if(canControl()){stage='paused';active=true;tiles('Paused',[entry('Resume',()=>activate()),entry('Check accuracy',()=>beginCapture('check')),entry('Back to setup',()=>backToSetup()),...(desktop?[entry('Close companion',()=>desktop.quit())]:[])]);report('Input is paused. Look at Resume for 0.6 seconds to continue.');}
+  if(canControl()){stage='paused';active=true;tiles('Paused',[entry('Resume',()=>activate()),entry('Check accuracy',()=>beginCapture('check')),entry('Back to setup',()=>backToSetup()),...(desktop?[entry('Close companion',()=>desktop.quit())]:[])]);report('Input is paused. Look at Resume for 0.6 seconds to continue.'+(linkWait?' '+linkLine():''));}
   else{menu();report('Eye control is off. Setup starts the camera. You can explore the search controls with the mouse.');}
  }
 }
@@ -2016,7 +2104,7 @@ function shiftText(p){
 // window (shown when a check fails) and from the Paused and settings menus, so
 // that a session whose check passed can be saved too.
 async function saveDiagnosticsFile(){
- const text=JSON.stringify({format:'hands-free-diagnostics',formatVersion:1,app:'0.4.40',savedAt:new Date().toISOString(),screen:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},trackingMode:$('tracking-mode').value,setup:sessionSetup||null,camera:cameraStats||null,model:model||null,validation:validation||null,picture:stream?.getVideoTracks()[0]?pictureControls(stream.getVideoTracks()[0]):null,pictureLog,pictureProbe,lensChoice,lens:{inUse:lensControl(stream?.getVideoTracks()[0]).lens,byHand:handLens(),log:lensLog},faceEdges:edgeTally,reflections:reflections.bands,settings:{headMove:$('head-move').checked,lidInput:$('lid-input').checked,darkCalibration:$('dim-capture').checked,calibration:$('calibration-mode').value},recentre:{on:recentreOn(),shift:[Math.round(recentre.shift[0]*innerWidth),Math.round(recentre.shift[1]*innerHeight)],looking:recentre.looking.map(v=>Math.round(v*100)/100),log:recentreLog},light:lastLight,steps:diagnosticSteps,frameColumns:['time','step','point','status',...FRAME_FIELDS,...ALT_FIELDS.map(k=>'pixels_'+k),'eye_white_1','eye_white_2','eye_glare_1','eye_glare_2','eye_lid_1','eye_lid_2','eye_not_read'],frames:diagnosticFrames});
+ const text=JSON.stringify({format:'hands-free-diagnostics',formatVersion:1,app:'0.4.41',savedAt:new Date().toISOString(),screen:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},trackingMode:$('tracking-mode').value,setup:sessionSetup||null,camera:cameraStats||null,model:model||null,validation:validation||null,picture:stream?.getVideoTracks()[0]?pictureControls(stream.getVideoTracks()[0]):null,pictureLog,pictureProbe,lensChoice,lens:{inUse:lensControl(stream?.getVideoTracks()[0]).lens,byHand:handLens(),log:lensLog},faceEdges:edgeTally,reflections:reflections.bands,settings:{headMove:$('head-move').checked,lidInput:$('lid-input').checked,darkCalibration:$('dim-capture').checked,calibration:$('calibration-mode').value},recentre:{on:recentreOn(),shift:[Math.round(recentre.shift[0]*innerWidth),Math.round(recentre.shift[1]*innerHeight)],looking:recentre.looking.map(v=>Math.round(v*100)/100),log:recentreLog},light:lastLight,steps:diagnosticSteps,frameColumns:['time','step','point','status',...FRAME_FIELDS,...ALT_FIELDS.map(k=>'pixels_'+k),'eye_white_1','eye_white_2','eye_glare_1','eye_glare_2','eye_lid_1','eye_lid_2','eye_not_read'],frames:diagnosticFrames});
  try{
   if(desktop?.saveDiagnostics){const where=await desktop.saveDiagnostics(text);return {saved:true,file:String(where).split(/[\\/]/).pop(),message:`Diagnostics saved to ${where}. Numbers only: eye and head readings for each dot, the map and the check results. No images and no name.`};}
   const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([text],{type:'application/json'}));link.download='hands-free-diagnostics.json';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),10000);
@@ -2038,7 +2126,7 @@ $('diagnostics-bar').onclick=saveDiagnosticsNow;
 // The same as a tile in Keys & settings, for saving by gaze.
 function diagnosticsEntry(again){return entry(diagnosticsSaved?'Diagnostics saved':'Save diagnostics',async()=>{await saveDiagnosticsNow();again();});}
 $('copy-report').onclick=async()=>{
- const content=['Screen control 0.4.40',$('result-title').textContent,resultReport||$('result-copy').textContent,$('result-sides').textContent,...[...$('result-details').children].map(n=>n.textContent)].join('\n\n');
+ const content=['Screen control 0.4.41',$('result-title').textContent,resultReport||$('result-copy').textContent,$('result-sides').textContent,...[...$('result-details').children].map(n=>n.textContent)].join('\n\n');
  try{await navigator.clipboard.writeText(content);$('copy-report-status').textContent='Report copied. It contains results only, without images or raw eye samples.';}
  catch{$('copy-report-status').textContent='The browser could not copy the report. You can select and copy the results above.';}
 };
@@ -2095,3 +2183,12 @@ addEventListener('pagehide',()=>{desktop?.pause();stopCamera();});
 desktop?.onPause(()=>pause());
 desktop?.onToggle(()=>{if(reading)run(exitReading);else if(active&&stage!=='paused')pause();else if(canControl())run(activate);});
 setInterval(()=>{if(returnGuide.visible&&performance.now()-lastSample>250)renderReturnGuide(returnGuide.update(null,headPositions,performance.now(),{...returnOptions(),reason:'eyes-unavailable'}),null);if((active||stage==='preview')&&performance.now()-lastSample>500){intent.reset();dwell.update(null,performance.now());pointer.reset();$('gaze').hidden=true;$('wake-progress').value=0;drawEyes(null);clearHighlight();desktop?.heartbeat(false);report('Waiting for fresh eye tracking. No action will be sent.');}if(capture&&lastReceived&&performance.now()-lastReceived>5000)showPointHelp('Camera frames stopped arriving.');if(capture&&!capture.seat&&performance.now()-capture.started>20000)showPointHelp(lastQuality);},100);
+// ?go=site: "Start eye control" on the Devices page of the website. With a calibration saved for
+// the profile the camera starts at once, and the website opens when eye control is on. Without
+// one, the setup panel says what to do first.
+arrivedForSite=!desktop&&new URLSearchParams(location.search).get('go')==='site';
+if(arrivedForSite){
+ const saved=loadSaved(),ready=saved&&validModel(saved.model)&&saved.setup?.cameraVersion&&!cameraChoiceDirty&&$('person').value.trim();
+ if(ready)startCamera('resume');
+ else report(!$('person').value.trim()?'To use this website with your eyes: enter your profile name, check the camera, then start.':(cameraNote?cameraNote+' ':'')+'To use this website with your eyes, this profile needs a calibration with this camera first. Check the camera above, then start. The website opens when eye control is on.');
+}

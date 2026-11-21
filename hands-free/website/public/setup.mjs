@@ -116,4 +116,15 @@ $('appliance-form').onsubmit=event=>{event.preventDefault();const name=$('applia
 $('appliance-kind').onchange=()=>{if(!$('appliance-name').value.trim()||Object.values(kindNames).includes($('appliance-name').value.trim()))$('appliance-name').value=$('appliance-kind').value==='other'?'':kindNames[$('appliance-kind').value];};
 await refresh(true);
 setInterval(()=>{if(!document.hidden&&!busy&&!$('edit-dialog').open)refresh();},2000);
+// Opened by the Windows app with its link code after the # (which browsers do not send to the
+// website): the code is filled in and the Link button is left to the person. The code is then
+// taken out of the address so it is not kept in the browser's history or shared with the page.
+function codeFromAddress(){
+ const match=/^#link=(\d{6})$/.exec(location.hash);if(!match)return;
+ history.replaceState(null,'',location.pathname);
+ $('link-code').value=match[1].slice(0,3)+' '+match[1].slice(3);
+ $('link-form').scrollIntoView({block:'center'});$('link-form').querySelector('button').focus();
+ notice('The Windows app\'s code '+$('link-code').value+' is filled in below. Press Link to let the app use your devices.');
+}
+codeFromAddress();addEventListener('hashchange',codeFromAddress);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});

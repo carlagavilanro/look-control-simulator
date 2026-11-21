@@ -81,3 +81,47 @@ test('head rejection and loss never reuse a previous selectable gaze',()=>{
  const head=p.update({point:null,raw:{x:.6,y:.6},reason:'head-position'},400);assert.equal(head.usable,false);
  p.reset();assert.equal(p.update({point:null,raw:null},450).point,null);
 });
+
+// A recorded session showed two things a clean simulation does not: every look
+// at a dot carries its own error of a few percent of the screen (posture, lids),
+// and with one dot left out an edge dot must be predicted from one side only.
+// Both shrink the left-out advantage of a regional correction far below its
+// real advantage on later looks, so the old 10% requirement almost never let
+// it through. These sessions have such a per-look error at every dot.
+function sessions(warp,look,count){
+ const out=[];
+ for(let seed=1;seed<=count;seed++){
+  let state=seed*31+7;const random=()=>{state=(state*1103515245+12345)%2147483648;return state/2147483648-.5;},bell=()=>(random()+random()+random()+random())*1.732;
+  const make=(targets,error)=>targets.map(target=>{const [x,y]=warp(...target),ex=bell()*error,ey=bell()*error;return {target,samples:Array.from({length:36},(_,i)=>feature(x+ex,y+ey,.0001*Math.sin(i*1.7)))};});
+  let m;try{m=fitCalibration(make(calibrationTargets(true),look));}catch{continue;}
+  // Later looks without a per-look error measure the map itself.
+  const checks=make(CHECK_TARGETS,0),plain={...m};delete plain.refinement;
+  out.push({chosen:!!m.refinement,after:validateCalibration(checks,m,1600,900).meanPixels,before:validateCalibration(checks,plain,1600,900).meanPixels});
+ }
+ return out;
+}
+const total=(list,key)=>list.reduce((s,o)=>s+o[key],0);
+
+test('a regional correction is still chosen, and still helps, when every look carries its own error',()=>{
+ const bent=sessions((x,y)=>[x+.08*Math.sin(2*Math.PI*x),y+.09*Math.sin(2*Math.PI*y)],.03,6),chosen=bent.filter(o=>o.chosen);
+ assert.ok(bent.length>=5);assert.ok(chosen.length>=3,`chosen in ${chosen.length} of ${bent.length}`);
+ assert.ok(total(chosen,'after')<total(chosen,'before')*.75,`${total(chosen,'after')} vs ${total(chosen,'before')}`);
+ for(const o of chosen)assert.ok(o.after<o.before,`${o.after} vs ${o.before}`);
+});
+
+test('with nothing to correct, a regional correction is rare and costs little',()=>{
+ // Chance can still favour a correction now and then (about 1 session in 16
+ // in a longer run). The price is bounded: a few pixels averaged over sessions.
+ const straight=sessions((x,y)=>[x,y],.03,6),chosen=straight.filter(o=>o.chosen);
+ assert.ok(straight.length>=5);assert.ok(chosen.length<=2,`chosen in ${chosen.length} of ${straight.length}`);
+ assert.ok(total(straight,'after')<=total(straight,'before')+3*straight.length,`${total(straight,'after')} vs ${total(straight,'before')}`);
+ for(const o of chosen)assert.ok(o.after<=o.before+20,`${o.before} -> ${o.after}`);
+ // And never for a map that is already exact.
+ assert.equal(fitCalibration(groups(calibrationTargets(true))).refinement,undefined);
+});
+
+test('a 27-dot calibration with 45 frames a dot is fitted in a few seconds, not fifteen',()=>{
+ const dense=calibrationTargets(true).map(target=>({target,samples:Array.from({length:45},(_,i)=>feature(target[0]+.01*Math.sin(target[1]*9),target[1]+.01*Math.cos(target[0]*7),.0002*Math.sin(i*1.7)))}));
+ const started=Date.now(),m=fitCalibration(dense),took=Date.now()-started;
+ assert.ok(validModel(m));assert.ok(took<8000,`fit took ${took} ms`);
+});

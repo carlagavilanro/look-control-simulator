@@ -153,6 +153,25 @@ export function savedPositionFeedback(feature,plan){
  const ready=error<=.6&&remaining.every(v=>Math.abs(v)<=.55);
  return {...feedback,ready,error,progress:Math.max(0,Math.min(1,1-error/2)),message:ready?'Position matched. Hold here.':feedback.message};
 }
+// Before a map is checked, the head goes back to where it was when the map was
+// calibrated: a check made with the head elsewhere measures the wrong thing.
+// The plan has the shape of a saved-position plan, so the same drawing and the
+// same words ("Move a little higher") can guide the way.
+export function calibrationReturnPlan(model){
+ const head=model?.head;
+ if(!head||!baseFields.every(k=>Number.isFinite(head[k]))||!(head.scale>0))return null;
+ const fields=[...baseFields,...['yaw','pitch'].filter(k=>Number.isFinite(head[k]))];
+ return {fields,target:{...head},reference:{...head},vector:fields.map(()=>1)};
+}
+// In position when every head reading is within this share of its limit (at 1
+// selection would pause): clearly inside the map's range, not just at its edge.
+export const RETURN_WITHIN=.7;
+export function calibrationReturnFeedback(feature,plan,within=RETURN_WITHIN){
+ const feedback=headGuideFeedback(feature,plan);
+ if(!plan||!feature||!plan.fields.every(k=>Number.isFinite(feature[k]))||feature.scale<=0)return {ready:false,worst:Infinity,progress:0,message:feedback.message};
+ const worst=Math.max(...delta(plan.target,feature,plan.fields).map(Math.abs)),ready=worst<=within;
+ return {ready,worst,progress:Math.max(0,Math.min(1,1-(worst-within)/2)),message:ready?'In position. Hold here.':feedback.message.replace(' Keep both eyes visible.','')};
+}
 export class HeadReturnGuide{
  constructor(){this.reset();}
  reset(){this.visible=false;this.plan=null;this.lostSince=null;this.matchedSince=null;this.lastAt=null;this.snoozeUntil=0;}

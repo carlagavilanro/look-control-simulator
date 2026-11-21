@@ -1,4 +1,1217 @@
-CURRENT VERSION 0.4.18 - FACE + EYES AT A DISTANCE, GLASSES, CAMERA PICTURE
+CURRENT VERSION 0.4.38 - A REPAIR THAT DOES NOT CHECK OUT IS NOT KEPT
+What prompted it: the two recordings of 21 Nov, 07:19 and 07:20, made with
+the laptop's own camera (zoom at 100 this time): a calibration, five more
+head positions, then "Refine accuracy" and its check.
+
+DO THE SAVED HEAD POSITIONS HELP? Yes, clearly.
+Each position was checked on seven dots. The same check frames, read
+three ways (average, px):
+
+    where the head was          calibration   that position's   the saved
+    (against the calibration)   map alone     own map           positions
+                                                                blended
+    2 to one side, turned, tilted  115            85               85
+    3 closer                       101            70               65
+    4 tilted and nodded             75            63               60
+    5 raised and nodded far        237            86               86
+    6 to the other side, turned    103           111               90
+    average                        126            83               77
+
+  - The first check, right after the calibration, read 77 px.
+  - Positions 5 and 6 did not pass their own checks (86 px with one dot
+    391 px off; 111 px), so they are "test only" and are not used in
+    normal use. They still carried information: on the last check of the
+    session the saved positions with the learned head correction read
+    75 px with all six and 105 px with the four that had passed.
+  - Sitting back "the same" is not the same. At the last check the head
+    was within what the app accepts as the calibration position (a
+    little closer, nodded a little), and the calibration map alone read
+    108 px there, about 74 px low. That is what the positions are for,
+    and why a few around your usual one are worth it.
+  - One map that uses head position, fitted to the calibration and all
+    five positions together, did no better than the calibration map
+    alone (118 px on average over the seven checks, against 117) and
+    much worse than the separate maps. A map per position is right.
+  - The head-movement step ran and was not used this time: the map with
+    head position placed its own head-movement frames worse than the
+    plain map did. That is the step working as meant.
+  - With the camera's zoom at 100 each eye was 70 pixels wide and the
+    first check read 77 px; at 180 it was 105 pixels and 73 px. No real
+    difference, and at 100 the face has room on every side.
+
+DID THE REFINEMENT HELP? No, and it did harm.
+  - Its nine dots showed no place that read differently from its
+    neighbours. They showed that everything read about 125 px low at
+    that moment. It corrected that. Twenty seconds later, at its check,
+    everything read about 74 px low, so the corrected map read 52 px
+    high. Result: 103 px, where the map before it reads 108 px on the
+    same frames. Nothing gained.
+  - The check failed (it would have failed with either map), and the
+    refined map, now marked "alignment needed", was saved over position 1:
+    the calibration that had passed at 77 px.
+  - What that means for what is saved now: position 1 carries a
+    correction of 31 px left and 126 px up that was right for one moment.
+    A new calibration is the clean way out (it starts the positions
+    afresh). "Adjust saved alignment - 5 points", sitting as for the
+    calibration, should rebuild that position and keep the others.
+
+WHAT CHANGED
+A refinement, a realignment or a one-point correction is now judged on
+the frames of the check that follows it, against the map it started
+from. It is not kept when it gains nothing there, or when it fails the
+check, the map before it had passed, and it is not at least a fifth
+better. The map from before then stays exactly as it was, with its own
+check, and the bottom bar says so with both numbers. Adding a head
+position is not affected: that makes a new map and replaces none.
+Checked in a browser with a stand-in camera three ways: a refinement
+that holds is kept; a refinement and a realignment that do not hold are
+dropped and the saved calibration is unchanged.
+
+NOT CHANGED, AND WHY
+  - Positions that fail their check stay "test only". Letting them in
+    would have helped here, but a failed check is the only sign the app
+    has that a map is poor.
+  - Choosing between the blend and the learned head correction. With
+    three positions saved the learned correction read worse on the next
+    check (104 px against 65); with six it read better (56 against 90,
+    75 against 101). Four cases are too few to change the rule.
+
+PREVIOUS VERSION 0.4.37 - THE HEAD-MOVEMENT STEP IS ON AGAIN UNLESS SWITCHED OFF
+What prompted it: the first recording made with the laptop's own camera
+(21 Nov, 06:37), with the head-movement step switched back on by hand.
+
+WHAT THAT RECORDING SHOWS
+  - The check passed: 73 px on average, 90% within 116 px. With the EMEET
+    the first checks have read between 62 and 265 px. Each eye was 105
+    camera pixels wide with the camera's own zoom at 180. A laptop camera
+    has one fixed lens, so its zoom enlarges the picture and adds no
+    detail: unzoomed that is about 58.
+  - It passed because of the head-movement step. At the check your head
+    sat lower and more turned than at any calibration dot. The map that
+    uses head position took most of that out. The same check frames,
+    read with the maps the app would have used without the step: 120 px
+    (eyes only) and 225 px (eyes and eyelids, the one it would have
+    picked). Both fail.
+  - Replayed with today's code, one of the three earlier head-movement
+    sessions gains too (18:54: 156 px against 222) and the other two are
+    unchanged, because their frames were not clear enough to use.
+  - So switching the step off by default in 0.4.34 was a mistake. That
+    decision compared sessions from different days and lenses. This one
+    compares two maps on the same frames.
+  - The picture is as steady as the EMEET's: while a check dot is held
+    the estimate scatters by about 20 px from frame to frame, and by
+    about 11 px over the 0.6 s a selection takes. What is left is where
+    each place on the screen reads: the top right 116 px to the left, the
+    two dots near the middle 65 and 89 px to the left, the other four
+    within 54 px either way.
+  - Re-centring from selections (0.4.34) worked as meant in real use: over
+    13 selections it moved the pointer 60 px right and 41 px down. The
+    first five keys lay 61 px to one side of where you looked, the last
+    five 26 px.
+  - Typing took two looks a letter (a group, then the letter), 1.3 to
+    2.3 s a look (4.2 s once). Frames with no estimate between selections
+    were few: blinks, the head being found again, and a few estimates
+    just outside the screen.
+
+WHAT CHANGED
+The head-movement step is on unless you switch it off (More setup
+options). If you had switched it on or off yourself, your choice stays.
+When no head movement is measured it ends by itself after its first dot.
+Nothing else is different from 0.4.36.
+
+LOOKED AT AND NOT CHANGED
+  - Leaving out the first calibration dot (shown before a person has
+    settled): 98 px on average becomes 97 over ten calibrations. No gain.
+  - Using the eyelid reading for up/down only, not for both directions:
+    better in this recording (145 px against 225), worse in the three
+    EMEET recordings where eyelids are used (235, 99, 91 px against 222,
+    90, 82). Not changed. The eyelid map is the one that fails badly when
+    the head has moved and no head-movement frames were taken, which is
+    one more reason for the step.
+
+WORTH TRYING WITH THIS CAMERA
+  - "Refine accuracy - 9 points" (More setup options) after a passed
+    check: it corrects places that read to one side, which is what is
+    left here. Save diagnostics after it and I can see what it gains.
+  - The camera's zoom lower than 180. Your chin sat at 94% of the picture
+    height, so there is no room to move down, and the zoom adds no detail.
+
+PREVIOUS VERSION 0.4.36 - BACK AT THE CAMERA CHECK GOES BACK TO SETUP
+Found while trying 0.4.35 on this PC, minutes after it was installed.
+At the camera check (the camera picture is showing, before any dot),
+Back did not go back. It opened the task menu: four tiles over the
+desktop, with the camera still on and eye control off, so the tiles
+answered the mouse only and the status line still spoke of the camera.
+Back there, and in Set camera / preview, now returns to the first page
+and switches the camera off. The same was reproduced in a browser with a
+picture that has no face in it, before and after the change.
+Everything else is 0.4.35, described next: read that first if you have
+not seen it.
+
+PREVIOUS VERSION 0.4.35 - START WORKS WHEN THE CAMERA LACKS THE CHOSEN RESOLUTION
+What was reported: with the laptop's own camera, the buttons on the first
+page did nothing when clicked.
+
+What it was. Seen on this PC itself, with the app opened and clicked
+through: the Resolution list still said "4K - 3840 x 2160", which is what
+the saved EMEET calibration uses. The laptop's camera has no 4K. Start
+camera & setup (and Set camera / preview) asked the camera for exactly 4K,
+were refused, and stayed on the first page. The only sign was one line of
+small print under the setup panel: "The selected camera cannot provide
+this resolution. Choose 1080p or another camera." With Resolution set to
+Auto by hand the same camera started at 1920 x 1080 and the calibration
+began. The same happens in a browser with a stand-in camera, which is how
+the fix was checked.
+
+What changed.
+  1. A resolution the camera does not have no longer stops the start.
+     The app goes on with what that camera can give, sets the Resolution
+     list to Auto, and says so on the status line ("This camera cannot
+     give 4K: it is used at 1920 x 1080."). A saved calibration is the
+     exception: it needs the resolution it was made with, and says that.
+  2. A camera that is not plugged in now says so ("The chosen camera was
+     not found...") in place of the resolution message.
+  3. When a start cannot happen, the reason is shown on the first page in
+     a red-edged box, not in small print.
+  4. Going back to the first page no longer leaves the last message of
+     the screen that was left ("Look at the purple dot. Point 1 of 27.").
+  5. The line under Tracking, which describes the saved calibration, says
+     so once another camera or resolution is chosen ("Your saved
+     calibration was made with: ...").
+Nothing else is different from 0.4.34.
+
+What to expect from a laptop's own camera. It starts now. It will point
+far less exactly than the EMEET: through its telephoto lens each eye was
+213 to 230 camera pixels wide, through its wide lens 128 to 140, and a
+laptop camera at arm's length is likely to give 50 to 70 (an estimate,
+not measured on yours). The accuracy check may then say "Alignment
+needed". Of the buttons in that box, "Test
+controls" turns eye control on with four large tiles; "Open controls
+(eyes paused)" does what it says, and the tiles then answer the mouse
+only. Whether that box should offer large-button eye control more
+plainly is the next thing to decide, and one saved diagnostics file from
+a laptop-camera session would show what accuracy it really gives.
+
+PREVIOUS VERSION 0.4.34 - ONE EYE HIDDEN; RE-CENTRING ACTS; HEAD STEP A CHOICE
+What was asked: whether the head-movement step would gain from more data
+(a little left, then more left); to use every saved recording to find and
+make improvements to accuracy and to use; and to think about people who
+wear glasses. This was done while you were away, so nothing here was
+tried on your PC or your camera. What to try is at the end.
+
+PART 1. WHAT THE RECORDINGS SAY
+Twelve recordings, ten calibrations, eighteen accuracy checks.
+  - While a dot is held the estimate is steady: 15 to 43 px of scatter.
+    That is not where the error comes from.
+  - The error of a check (45 to 265 px) is two things. A shift shared by
+    all seven dots: 30 to 100 px at the first check after a calibration
+    (159 once), to the right in five of nine. And each dot's own offset,
+    15 to 60 px across and 20 to 100 px up and down.
+  - Where the shared shift comes from: your head turns a little as the
+    calibration goes on. The centre dot is shown three times. Between the
+    first and the last (about 75 seconds) the head's turn reading rose in
+    9 of 10 calibrations, and the same dot read 33 to 171 px further
+    right at the end in 7 of them (about the same in 1, 39 and 55 px left
+    in 2). The map is fitted to the whole 75 seconds; the check comes
+    after the end.
+  - Re-centring from the buttons you select (in since 0.4.24) was meant
+    for exactly this. Replayed on every recording, it never moved the
+    pointer once. Yet in one session all 16 selections lay to the right
+    of their buttons (32 px on average), and in another 5 of 6 did (70 px
+    on average, the last two 108 and 128 px).
+  - With one eye hidden (a reflection over one iris), the pointer jumped
+    43 to 94 px in a typical frame, and 117 to 293 px in one frame of
+    ten. See part 2.
+  - The three times the head was moved in the head-movement step, the
+    frames were "not clear enough" and head position was not used. The
+    checks that followed read 265, 166 and 91 px. After calibrations
+    without head movement: 62 to 118 px.
+
+PART 2. WHAT CHANGED
+  1. One eye hidden: the other is filled in from where it is looking.
+     When one iris is under a reflection the app reads the other eye and
+     fills in the hidden one from "the usual difference between the two".
+     That difference is not one number: it changes by about .06 from the
+     left edge of the screen to the right, more than the whole top-to-
+     bottom change of the up/down reading. The app now learns, while both
+     eyes are read, how the difference changes with where each eye looks,
+     and uses that. Replayed on your recordings (hide one eye in every
+     check frame, see how far the pointer moves): 67 px before, 27 px
+     now, in a typical frame; in one frame of ten, 215 px before and 95
+     now. This is the change that matters most for glasses, where one
+     lens often reflects and the other does not.
+  2. Re-centring acts on every selection.
+     Before: nothing until six selections agreed beyond doubt. Now: each
+     selection that is not taken back moves the pointer part of the way
+     towards its button: about a third of the distance for the first,
+     about a sixth later on, less for larger buttons, nothing for a
+     button across more than 30% of the screen, never more than 6% of
+     the screen at once or 18% in all. A selection followed by nothing
+     for five minutes does not count. Back and Delete still cancel the
+     selection before them.
+     On your recorded selections: the six-selection session ends with
+     the pointer moved 46 px (72 px off on average becomes 57); the
+     16-selection session goes from 32 px off to 25.
+     On made-up typing (40 keys of your key size, 300 runs each), right
+     keys out of a hundred:
+           pointer reads            before    now
+           true                       94       93
+           30 px to one side          92       93
+           60 px right, 40 px up      77       90
+           100 px right               76       88
+           70 px low                  79       88
+           creeping 2 px a key        89       93
+     The price is the first line: about one key in a hundred when nothing
+     is wrong, because the pointer now wanders by about 13 px.
+     The bottom bar says so when it adds up to 20 px or more. The switch
+     is where it was: More setup options, "Re-centre the pointer from the
+     buttons I select".
+  3. The head-movement step is off unless you switch it on.
+     More setup options, "Head-movement step after calibration". See
+     part 3 for why. Calibration is about 40 seconds shorter.
+  4. Diagnostics record more (numbers only, as before): for every frame
+     of a calibration or check, how much of each iris a reflection covers,
+     how much the lid covers, and which eye was not read; and for every
+     selection, why frames in between gave no estimate. On your recordings
+     a third of the frames between two selections gave none, and the file
+     did not say why.
+
+PART 3. THE HEAD-MOVEMENT STEP, AND WHETHER MORE OF IT WOULD HELP
+Short answer: holding a few positions (a little left, hold; more left,
+hold) would give cleaner data than moving continuously, but it would not
+have fixed what went wrong, and the recordings give no sign yet that the
+step improves the map.
+  - What went wrong each time was not too little data. At 23:22 the nod
+    was too small to count, the turn was fine, and the tilt began with
+    the head still turned, so the readings were 230 to 790 px from the
+    dot. The words to read sit under the dot, which pulls the eyes off it.
+  - A map that uses head position did worse on the checks than the
+    plain map in the two sessions where the head had been moved on
+    purpose (18:54 and 21:48). It did better in one where it had not
+    (21:44: 54 px against 82).
+  - The head moves on its own, slowly, in every calibration (part 1).
+    That drift is the thing worth correcting, and re-centring from
+    selections now does it during use.
+  - Many of the people this is for cannot move the head on purpose.
+So the step stays in the app but is a choice. If you want to pursue it,
+the version to build is: three held positions for each movement, each
+started only once the head is back in the middle, with the instruction
+spoken or shown before the dot rather than under it. Say so and I will
+build that; it needs one recording from you to judge.
+
+PART 4. GLASSES
+What the app does today for a person with glasses:
+  - A reflection over one iris: that eye is left out and filled in from
+    the other (change 1 above). The status line says which eye.
+  - Reflections over both: the frame is refused and the pointer waits.
+    The status line says to move the lamp, dim the screen or tilt the
+    glasses a little.
+  - Since 0.4.33 the eyelid is no longer mistaken for a reflection, so
+    the reflection figures mean reflections.
+  - Glasses that slide down the nose shift every reading slowly. Change 2
+    follows that.
+  - More setup options has "Dark calibration screen" for the white
+    calibration screen reflecting in the lenses.
+What is not known: how often both lenses reflect at once with a screen
+this bright, whether the frame of the glasses disturbs the lid reading,
+and how much stronger lenses bend the picture of the eye as the head
+turns. None of the eleven recordings was made with glasses. One recording
+made with glasses on (calibration, a check, a minute of typing, Save
+diagnostics) will answer these: change 4 above is there for it.
+Things that help anyone with glasses, with any eye tracker: no lamp or
+window behind the screen or behind you at head height; the screen no
+brighter than the room needs; clean lenses; and if a reflection sits on
+an eye, tilting the screen or raising the camera a little moves it.
+
+PART 5. LOOKED AT AND NOT CHANGED
+  - Fitting the map "as at the end of the calibration" (taking the slow
+    head turn of part 1 out of the dots). Replayed: first checks 108 px
+    on average become 102 to 104; better in about half the sessions,
+    worse in the rest. Not enough to change the fit. Re-centring from
+    selections covers it during use.
+  - The eyelid reading for up and down was turned down at 23:22 because
+    of one dot where the eyes were opened wide. Loosening that rule would
+    let through maps that jump when the eyes open wide in use.
+
+PART 6. WHAT TO TRY, AND WHAT COULD NOT BE CHECKED HERE
+Checked here: 0.4.34's tests (the same replayed sessions and made-up
+persons as before) and the page in a browser with a stand-in camera.
+Not checked: your camera, your eyes, Windows itself.
+  1. Calibrate as usual (no head-movement step now) and run a check.
+  2. Type a few words into another app. Watch whether keys get easier
+     after the first three or four. The bottom bar reports re-centring.
+  3. If the pointer seems to wander when it was right, switch off
+     "Re-centre the pointer from the buttons I select" and tell me.
+  4. Save diagnostics afterwards. The file now says why frames between
+     selections are lost, which is the next thing to work on.
+The previous version's files are kept for going back.
+
+PREVIOUS VERSION 0.4.33 - THE EYELID IS NOT A REFLECTION; KEYBOARD ONLY; OTHER APPS
+What was reported: "I wasn't wearing glasses, those were my eyes", and six
+suggestions: only the keyboard on screen while typing; open any app; move
+through an app as Tab does; switch between open apps; open notifications;
+and whether the camera's other settings are adjusted for the eyes.
+
+PART 1. WHAT 0.4.32 CALLED A REFLECTION WAS THE UPPER EYELID
+Please disregard the advice in the 0.4.32 notes about the lamp, glasses and
+the dark calibration screen. It rested on a wrong assumption.
+
+What the 23:22 recording shows, read again. How often a frame was refused
+as "reflection", by how far the eyes were open (lid to lid, as a share of
+the eye's width):
+      eyes open        refused   read with one eye only
+      more than 0.32     0-1%          0%
+      0.28 to 0.30        6%          19%
+      0.26 to 0.28       27%          52%
+      less than 0.26     about 29%    about 18%   (the rest: "closed")
+Looking at the bottom of the screen lowers the lids, which is why the bottom
+row of dots suffered, and why opening the eyes wide made a dot register.
+
+The fault in the app. To spot a reflection it counted the bright pixels
+inside the whole circle of the iris. When the upper lid lies over the top of
+the iris, lid skin is inside that circle. With a lamp on the face the skin
+is brighter than the white of the eye, so it counted as a reflection, and
+at one fifth of the circle the eye was refused.
+
+What changed.
+  - Only the open part of the eye is judged: what lies between the two lid
+    lines the eye model gives. Lid, lashes and skin are left out.
+  - The same goes for the "burnt out" measure that "Set brightness for my
+    eyes" uses. On 20 Nov it turned the camera's gain down from 100 to 22,
+    probably because of bright lids rather than the eyes themselves. Press
+    it again once with this version.
+  - A real reflection inside the open eye is measured as before.
+  - Diagnostics now record how much of the iris the lids cover.
+  - The wording no longer assumes glasses.
+What to expect: bottom dots should register at your normal eye opening, and
+the eyelid input should stop being upset by one stalled dot. This could not
+be checked on your eyes (the app keeps no pictures); it was checked on drawn
+eyes with a lit lid over the iris, where the old measure refuses the eye
+and the new one does not.
+
+PART 2. YOUR SUGGESTIONS
+  1. Only the keyboard while typing. Built.
+     At your key size the typing panel (draft box, word row, buttons, keys)
+     covered about nine tenths of the screen. Typing into another app is now
+     direct: each key goes to the app at once, and the panel is three rows
+     of keys and nothing else, so about half the screen stays free above it.
+       - Keys: the letters, Space, Delete, Enter, and 123 for numbers and
+         signs (Aa and ABC are on that page).
+       - The bar under the keys shows what was typed last ("Typed: hola"),
+         because the box you type into may be behind the keys.
+       - Back, in the bottom bar, puts the keyboard away.
+       - Word suggestions and autocorrect do not apply here, because there
+         is no draft. They still apply to YouTube and Google searches.
+       - The keyboard stays on screen between letters. (Before, the window
+         hid for every action sent to Windows.) If Windows will not give the
+         app the keyboard focus that way, it hides as before.
+     For searches the draft panel remains; its word row now appears only
+     when it has a word to offer.
+  2. Open any app. Built.
+     Browse & scroll, Apps & keys, Open an app. Write the name, choose "Open
+     this app": the app presses the Windows key, types the name into
+     Windows' own search and presses Enter. Windows opens its first result,
+     so write enough of the name to make that the right one.
+  3. Moving through an app as Tab does. Built, beside what was there.
+     Looking at a button or box to select it already works in any app that
+     shares its controls. New: Apps & keys, Keys: Next field (Tab), Previous
+     field, Press Enter, Escape. These stay on screen, so Tab can be pressed
+     several times in a row.
+  4. Switching between open apps. Built.
+     Apps & keys: Next app (Alt+Esc: your open windows, one after another)
+     and Last app (Alt+Tab: back to the one used before).
+  5. Notifications. Partly.
+     Apps & keys, Notifications opens Windows' notification list (Win+N; on
+     Windows 10, Win+A). There, look at a notification to open it, as with
+     any button. Two cautions: Windows draws that list above this app, so
+     the purple box that shows what you are selecting may be hidden on it;
+     and the pop-up that appears for a few seconds when a notification
+     arrives is not handled, because it is gone before it could be selected.
+     Its notification is in the list.
+  6. Are the camera's other settings adjusted for the eyes? Not
+     automatically. "Set brightness for my eyes" adjusts exposure, gain and
+     brightness, and judges each change by how bright the white of the eye
+     is. Contrast, sharpness, colour, white balance and focus are sliders in
+     Set camera / preview, Picture, and are left as the camera has them.
+     They were not automated because cameras respond to them very
+     differently and sharpening can shift the edge of the iris that the
+     tracker reads. This can be added with the same rule as brightness
+     (keep a change only if the eyes read better). Not in this build.
+
+Where things are now. Browse & scroll has: Scroll down, Scroll up, Click a
+video or button, Type text, Top & bottom controls, Apps & keys. "Use another
+app" moved to Apps & keys, Keys, "Use the app in front".
+
+How this was tested, and what was not.
+  Tested here: unit tests (the lid measure on drawn eyes; the list of keys
+  the app may send; the name of an app to open); the real page in a headless
+  browser with a stand-in companion and readings scattered as in your
+  sessions (typing by gaze: each key sent once, about 0.9 s a key; the new
+  pages; opening an app; the keyboard covering the lower half).
+  NOT tested: anything on Windows itself. The key presses (Windows key,
+  Alt+Esc, Alt+Tab, Win+N), typing without hiding the window, and how
+  Windows' search and notification list behave under this app could only be
+  written, not run. If one of them misbehaves, the others and everything
+  from before are unaffected; please tell me which.
+
+
+PREVIOUS VERSION 0.4.32 - REFLECTIONS ARE COUNTED AND REPORTED
+(Its account of "reflections in your glasses" was wrong; see 0.4.33 above.)
+What was reported: a session saved on 20 Nov at 23:22, with 0.4.31, the
+telephoto lens and the head-movement step.
+
+What the recording showed.
+  - The lens. The camera did start on the wide lens when the preview opened.
+    The app put the telephoto lens back 2 seconds later, and the calibration
+    ran on it (about 190 camera pixels across each eye). That confirms what
+    0.4.31 was built on.
+  - The framing. After the camera was tilted, the face ends at 86% of the
+    picture height. No frame had the chin past the edge.
+  - The check: average 91 px, 90% within 176 px, not passed. Only the first
+    check is in the file. (21:44, the run that passed, read 82 px on its
+    first check and 45 px on the second.)
+  - Reflections. At the bottom row of dots the app had no reading in 31% of
+    the frames because both irises were covered, and read one eye only in a
+    further 18%. In the other rows it was 3 to 7%. Two hours earlier the
+    bottom row stood at 11%. One bottom dot took 10.7 seconds instead of 2.5.
+  - The light has changed since 21:44. The app had to turn the camera's gain
+    down from 100 to 22 because the eyes were overexposed, and one eye is
+    now much brighter than the other (168 against 119). So there is more
+    light on the face, from one side. That fits a lamp whose reflection sits
+    low in the glasses, though the numbers cannot say what is being
+    reflected.
+  - The eyelid input was available this time (the dot in the bottom right
+    corner had a reflection over one eye in all 50 of its frames and still
+    got its reading, which is what 0.4.31 added). It was not used, because of
+    the dot that took 10.7 seconds: while the app could not read the eyes
+    there, the eyes were opened wider than at the other bottom dots, and a
+    map that reads the lids placed that dot 347 px away instead of 194 px.
+    On the check, the lid map would have read 80 px instead of 91 px.
+  - The head-movement step came out "unclear" for the third time in three
+    tries. The nod was small and read well. The turn read as expected, apart
+    from one second in which the eyes read far to one side. The tilt began
+    while the head was still turned from the dot before, and the reading sat
+    230 to 790 px from the dot all through it. Whether the eyes left the dot
+    or the tracker misread during the tilt cannot be told from the numbers.
+
+What changed.
+  - Reflections are counted during every calibration and its checks, by
+    part of the screen (top, middle, bottom third). When one part loses 15%
+    of its frames to reflections over both eyes, or 25% counting one eye, the
+    result says where and how much, for example: "Reflections: at the bottom
+    of the screen a reflection in your glasses hid both eyes in 21% of the
+    frames and one eye in a further 15% (elsewhere 4%)", with what can help.
+  - When the head-movement step ends "unclear", the note now says that the
+    step can be switched off.
+  - Diagnostics now hold the reflection counts and the settings in use
+    (head-movement step, eyelid input, dark calibration screen, calibration
+    length).
+  The map, the lens handling and the eyelid input are as in 0.4.31.
+
+What you can do.
+  - Reflections first. In Set camera / preview, look at the bottom corners
+    of the screen and watch the line under the picture. It says "Reflection
+    over your ... eye" or "reflection over an iris" when one is covered.
+    Then try, one at a time: move the lamp higher or further to the side;
+    tip the glasses down a little at the ears; switch on "Dark calibration
+    screen" (Setup, More setup options). Keep what makes the remark go away
+    while you look down.
+  - Switch the head-movement step off for now (Setup, More setup options).
+    In three tries it has not produced a head map, it adds 40 seconds, and
+    after it the head is never quite back where it was.
+  - If a dot will not register, keep looking at it as you normally would.
+    Opening the eyes wide at one dot is what kept the eyelid input out this
+    time.
+
+Not changed, on purpose. The rule that kept the eyelid input out (the worst
+calibration dot must not get worse) did what it is for. Loosening it would
+have gained 11 px on this check, and would let wide-open eyes lift the
+pointer by 150 px or more in use.
+
+How this was tested: unit test for the counting; the five recordings of
+20 Nov put through it (a remark for 23:22 only); the real page in a headless
+browser with a stand-in tracker that covers both irises in 30% and one in
+15% of the frames at the bottom dots (calibration completes, the eyelid input
+is used with one-eye frames, the remark appears; no remark without
+reflections). Not tested on your camera.
+
+
+PREVIOUS VERSION 0.4.31 - THE LENS YOU PRESS BY HAND IS KEPT
+What was reported: two sessions on 20 Nov, 21:44 without the head-movement
+step and 21:48 with it. The second was less accurate, and the question was
+whether one of them had missed the telephoto lens.
+
+What the two recordings showed.
+  - 21:44 ran on the telephoto lens (about 200 camera pixels across each
+    eye) and passed at 45 px. 21:48 ran on the wide-angle lens (about 125
+    pixels) and failed at 102 px. The app's own note in the second file
+    still said "telephoto, chosen by hand".
+  - Both were made in one run of the app. Between them the camera was closed
+    and opened again (back to setup, New calibration), and it came up on the
+    wide lens.
+  - On the telephoto lens the nose is 77% of the way down the picture. By
+    ordinary proportions that puts the chin at or just past the bottom edge.
+    This is an estimate: until now the recordings held the nose and the eye
+    corners, not the outline of the face.
+
+What went wrong in the app (reproduced with a stand-in camera).
+  1. With the chin cut off, the app's own try of the telephoto lens ends
+     with "your whole face does not fit", and the app did not try again for
+     the rest of that run. So Telephoto had to be pressed by hand.
+  2. When the camera was opened again it started on the wide lens. Nothing
+     put the lens pressed by hand back, and nothing said so. The calibration
+     ran on the wide lens.
+  At which moment the camera dropped the lens on your PC is not in the
+  recording, because lens changes were not logged. The sequence above is one
+  that reproduces everything the recording does show.
+
+What changed.
+  - The lens pressed by hand is put back whenever the camera comes up on the
+    other one: in Set camera / preview, before a new calibration, and before
+    a saved calibration made with that lens is used. It is done once the
+    picture is running and before the first dot. The status line says
+    "Putting back the telephoto lens you chose".
+  - If the camera refuses, the app says so, carries on with the lens there
+    is, and the result says "not the lens you chose".
+  - The lens in use is shown: in the line under the camera picture during
+    the camera check, and with every result ("... telephoto lens (your
+    choice)").
+  - The lens pressed by hand also decides which saved calibration is used.
+    On your PC the calibration saved last is the wide-lens one from 21:48.
+    With this version the start screen should show "telephoto", and "Use
+    saved calibration" should take the telephoto calibration from 21:44,
+    which passed. (Expected from the code; your saved calibrations are not
+    something this build was tested against.)
+  - When the app's own try of the telephoto lens fails because the face is
+    cut off at one edge, but would fit, it now says which edge and what to
+    do: "your chin is cut off at the bottom of the picture ... Tilt the
+    camera down a little and press Telephoto".
+  - On either lens, the preview, the camera check and the result say when
+    the face runs past an edge of the picture.
+  - A new calibration no longer stops when the settings chosen in the
+    preview cannot be put back. It carries on with the camera as it is.
+  - Diagnostics now hold a lens log (camera opened and closed, the lens at
+    each of those moments, every change and who made it), the outline of
+    the face in the picture, and how often it ran past an edge.
+
+The eyelid input and reflections.
+  In the 21:48 run the eyelid input was "unavailable". Two dots in the
+  bottom row had a reflection over one eye in many frames (22 of 80 and 72
+  of 107). A frame with one eye read carried no lid reading, and a dot
+  needed the reading in four fifths of its frames.
+  - A frame with one eye read now carries that eye's opening. The other is
+    filled in from the usual difference between your two eyes, measured at
+    the calibration dots. In the four recordings that hold lid readings,
+    that difference varied by 0.02 to 0.03 from dot to dot (the opening
+    itself changes by 0.12 to 0.14 from the top of the screen to the
+    bottom), and an opening filled in this way was off by 0.002 to 0.003.
+  - Before, a map that reads the lids placed such a frame as if the lids
+    were at their usual opening. At the bottom edge of the screen that is up
+    to about 30% of the screen height too high, for as long as the
+    reflection lasts. Now the frame is placed like its neighbours.
+  - A dot needs 16 lid readings, however many frames it has.
+  Replayed on the 21:48 recording, the input is now available and is still
+  not used: on the wide lens it placed the calibration dots left out of the
+  fit worse (11.3% of the screen against 10.2%). The 21:44 result is
+  unchanged (82 px, then 45 px and a pass).
+
+What you can do.
+  - In Set camera / preview, on Telephoto, tilt the camera down a little
+    until your face is in the middle of the picture with the chin clearly
+    inside. The line under the picture stops mentioning the chin when it is.
+    A face that is whole in the picture is tracked more steadily, and the
+    app can then choose the telephoto lens by itself.
+  - The head-movement step. The 21:48 run cannot say what the step does on
+    the telephoto lens, because it ran on the wide lens. What it does show:
+    the movements were roughly the size asked for (the turn went a little
+    further); the measurements came out
+    "unclear" again (no map placed the dots well while the head moved, so
+    the plain map stayed); and after the step the head was back within four
+    tenths of the pause limit, but slightly turned and tilted, and every
+    dot read about 125 px left and 118 px down until the check corrected
+    that. One run with the step on the telephoto lens would settle whether
+    it is worth its 40 seconds.
+
+Also looked at, not changed. A map that reads head position beside the
+lids, fitted to the calibration dots alone (no head-movement step), was
+replayed on the four recordings of 20 Nov. On 21:44 it took out the shared
+shift (first check 54 px instead of 82 px). On 21:48 and 18:54, where the
+head had been moved on purpose, it was clearly worse. Not built in.
+
+How this was tested: unit tests (the lens chooser naming the edge; the edge
+remark; one-eye openings through the tracker's own code; calibration with
+reflections over two bottom dots; saving and reading back); all four
+recordings of 20 Nov replayed; the real page in a headless browser with a
+two-lens stand-in camera (the sequence of 20 Nov; a camera that refuses the
+lens; a camera that keeps it; the page reloaded with the wide-lens
+calibration saved last). Not tested on your camera: how the EMEET behaves
+when it is opened again is inferred from the recording.
+
+
+PREVIOUS VERSION 0.4.30 - THE EYELIDS ARE READ FOR UP AND DOWN
+What was asked: build the input described at the end of the 0.4.29 notes.
+
+Why. Up and down is the weak direction. Over the height of the screen the
+iris reading changes by about 0.05 of the eye's width, and from one frame to
+the next it scatters by 0.005 or more. How far the eyes are open follows the
+gaze up and down too, and changes by 0.10 to 0.12 over the same height.
+
+What changed.
+  - The map can take a third input beside the two iris readings: the opening
+    of the eyes (lid to lid as a share of the eye's width, both eyes
+    averaged). It is fitted together with the iris readings in one step.
+  - It is used only when it earns its place: calibration dots left out of the
+    fit must be placed at least 5% better with it, most of them better, and
+    the worst of them no worse. Otherwise the map is exactly as before. The
+    status line after the check says which: "The eyelids are read as well,
+    for up and down" or "The eyelids are not read: they did not place the
+    calibration dots better".
+  - It is read only within the openings seen at the calibration dots. Lids
+    half shut on their way into or out of a blink lie below that range and
+    cannot carry the pointer down the screen. A frame without a lid reading
+    is answered as before.
+  - It is not combined with the head-position map yet. If the head-movement
+    step produced a head map, the two are compared on left-out dots and the
+    better one is used. The one recording that could show them together was
+    made with the head far out of place, and there they did no better
+    together than the head map alone.
+  - It can be switched off: Setup, More setup options, "Read the eyelids for
+    up and down". A change counts from the next calibration.
+  - Alignment and Refine accuracy keep the lid part of a map. The saved
+    summary of each calibration dot now holds the lid openings as well
+    (numbers only, as before).
+
+What the two recordings of 20 Nov (evening) say. They are the only ones that
+hold the lid openings.
+  19:11 (head in place). Calibration dots left out: 10.8% of the screen ->
+  7.8%. The whole evening replayed through the app's own steps:
+                               1st check   2nd check   after Refine accuracy
+      as recorded (no lids)     119 px      105 px      81 px
+      with the lids              90 px      109 px      67 px
+  In the third check the up/down reach falls from 132 to 97 px. It would
+  still have failed, on one dot (197 px there instead of 356 px).
+  18:54 (head out of place). The head map from the step stays, under the
+  rule above; the lids are not used there.
+  With no corrections at all, the same map with and without the lids: the
+  one with them was better on all six later measurements of the two evenings
+  (by 12 to 29%), and its estimates scattered less while a dot was held.
+
+What it does not fix. After calibration all estimates shift up or down
+together, by 30 to 110 px within 80 seconds in those recordings, with or
+without the lids, and not at the same moments. On the second evening the
+plain map's shift was there at the first check and was corrected at once;
+the other map's came later and was corrected by Refine accuracy. Tying the
+lid reading slowly to the iris reading was tried against the recordings and
+made things worse (there it was the iris reading that had shifted), so it is
+not in this build.
+
+Cautions. Two recordings, one evening, one person, one lens: enough to build
+on, not enough to promise. Eyelids also droop when a person tires. If the
+pointer creeps downwards over a long session, Check accuracy corrects a
+shared shift, and the switch above turns the input off. Please tell me if
+you see it.
+
+How this was tested: unit tests with a made-up person whose up/down iris
+reading is as weak as recorded (used when it helps; not used when the lids do
+not follow the gaze or the iris reading is already exact; blinks during
+calibration; half-shut lids; no lid reading; saving and reading back;
+alignment and refinement afterwards; together with head position; switched
+off); both recordings replayed frame by frame; the real page in a headless
+browser with a stand-in tracker (setting on, off, lids that do not follow,
+no lid reading at all). Not tested on your face in live use.
+
+
+PREVIOUS VERSION 0.4.29 - THE HEAD-MOVEMENT STEP SAYS WHAT TO DO, AND A CHECK WAITS FOR YOUR HEAD
+What was reported: in the head-movement step it was not clear what to do with
+the head, and the check after it came out worse.
+
+What the two recordings of 20 Nov (evening) showed.
+  - 18:54, with the step. On dot 1 the head nodded widely. On dots 2 and 3 the
+    face was turned to the dot and held there, up to two and a half times as
+    far from the calibration position as the app allows before it pauses. The
+    app judged those frames unclear and kept the plain map, so the step did
+    not change the map. But the head did not go back afterwards: during both
+    checks it sat 5 to 6% of the picture lower and nodded further down. 298 of
+    324 frames of the first check, and 181 of 313 of the second, were outside
+    the map's head range. In no earlier recording was a single frame outside.
+    Result: 265 px, then 113 px after the shared-shift correction.
+  - 19:11, step switched off. The head stayed in place (no frame outside the
+    range): 118 px, 105 px, and 81 px after Refine accuracy.
+  - The calibration itself scored the same on left-out dots as the morning
+    one, so the outer dots at 4% (since 0.4.28) did not make the map worse.
+The instruction was the fault: "move your head" did not say how, or how far.
+
+What changed.
+  1. The step says what to do. A longer explanation comes first. Then, right
+     under each dot in large letters, one movement:
+         dot 1   Nod: chin a little down, then a little up
+         dot 2   Turn: nose a little left, then a little right
+         dot 3   Tilt: one ear a little towards its shoulder, then the other
+     Keep your eyes on the dot and your face towards the screen. Small
+     movements are enough, about two fingers wide. A ring round the dot fills
+     as you move. If the head goes too far the dot turns amber and the words
+     become "Too far. Come back a little." About 40 seconds in all. As before:
+     if the head does not move on the first dot the step ends by itself, the
+     Skip head movement button ends it at any time, and it can be switched
+     off under Setup, More setup options.
+  2. Every accuracy check now waits for your head. Before the first check dot
+     the head has to be back where it was for the calibration dots (every
+     head reading within 70% of its pause limit) and held there for a moment.
+     If it already is, you see nothing. If it is not, a drawing appears: the
+     solid head is where you were, the dotted head is where you are, and words
+     such as "Move a little higher" say which way. After 30 seconds, or with
+     Start the check now, the check starts anyway and its result says that it
+     began out of place. Not in Eyes close-up tracking (which cannot see the
+     head) and not for the combined check of several saved head positions.
+  3. What counts as head movement. A head held still, but away from the
+     calibration position, now counts like a head that moves. Frames more than
+     twice the pause limit away are left out. Replayed with these rules, the
+     18:54 recording gives a map that uses head position, and that map reads
+     156 and 83 px on its two checks instead of 265 and 119 px for the plain
+     map (before the shift correction). The rules were changed after seeing
+     that recording, so this shows how well they fit it. It is not a forecast.
+  4. Diagnostics: frames taken during the wait are marked "seat", and each
+     check records how it began (in place or not, and how long it waited).
+
+Found, not yet built: reading up and down. In both recordings the up/down
+error is about twice the left/right error (in the last check of 19:11:
+132 px against 60 px). How far the eyes are open follows the gaze up and
+down, and has been recorded since 0.4.27. Added as a third input beside the
+two iris readings, in a replay, it cut the up/down error on left-out
+calibration dots by about a third in both recordings (64 to 41 px, and 61 to
+47 px) and lowered the error on all five recorded checks. Built in 0.4.30.
+
+How this was tested: unit tests (head offsets and limits, held poses, frames
+out of reach, the guide back to the calibration position); the 18:54
+recording replayed through the new rules; the real page in a headless browser
+with a stand-in tracker: the step done as asked, the head 6% lower afterwards
+and returning once the drawing shows, the head never returning (the check
+starts after 30 s and says so), the face pointed at the dot (amber, "Too
+far"), a still head (the step ends), Skip, the step switched off, and Pause
+during the wait followed by Retry. Not tested with a person: whether the
+words under the dots are clear enough is for you to tell me.
+
+
+PREVIOUS VERSION 0.4.28 - CONTROLS AT THE SCREEN EDGES AND IN CROWDED CORNERS
+What was asked: buttons near the end of the screen should be selectable even
+where the program struggles to detect them, as with YouTube's upper left
+corner.
+
+Why it struggled. Four separate causes:
+  1. Two controls close together (YouTube's menu button and its logo) were
+     refused: when the nearest control did not clearly lead the next one,
+     nothing was highlighted at all.
+  2. Near an edge the estimate tends to stop short of it. The control beside
+     the wanted one was highlighted, and the outer one could not be reached
+     however far the eyes went.
+  3. Anything under Hands Free's own top bar and bottom bars was left out
+     altogether (a browser's tabs, address bar and toolbar; a page shown full
+     screen starts under the top bar too).
+  4. The calibration dots stopped 7% short of the edges, so the outer strip
+     and above all the corners were extrapolated.
+
+What changed in Browse & scroll:
+  - A list instead of a refusal. When several controls are too close
+    together to tell apart, a dashed outline goes round all of them and the
+    status line says "3 controls here - hold to choose". Holding it opens a
+    list of large named buttons, laid out as the controls lie on the screen;
+    the outline stays up meanwhile. Hold the one you want. The Back button
+    at the bottom right closes the list without opening anything. A look
+    well inside a single control still opens it directly, as before.
+  - Edges. A look that lands in the outer tenth of the screen is taken as
+    reaching from where it landed out to that edge. A control lying further
+    out than the nearest one is offered in the same list. A control reached
+    only in this way is never opened directly: it asks first ("Account -
+    hold to confirm", then a single button).
+  - Top & bottom controls. A sixth button in the dock lists what lies under
+    Hands Free's bars, with the count on the button. In a browser: the tabs,
+    then Back, Forward, Reload, the address bar and so on, six to a page.
+    Choosing a text box, such as the address bar, opens the keyboard for it.
+    A control at least half clear of the bars can be looked at directly.
+  - The controls are read again at the moment of choosing from a list. A
+    page that scrolled while the list was open is handled, and a control
+    that has gone gives "That control changed. Look again." and no click.
+  - After a choice nothing else can be selected until the eyes have left the
+    button that was held.
+
+Calibration: the outer dots are now 4% from the edges instead of 7%, as far
+out as a whole dot still shows on a small screen. While a dot sits on the top
+or bottom bar, the bar's text fades so that nothing beside the dot draws the
+eyes. Saved calibrations keep working; the gain at the edges needs a new
+calibration.
+
+How this was tested: unit tests for the matching (one control, crowded,
+edge, corner, rows stacked along an edge, the size limit of a list, names,
+order, controls under the bars); the real page in a headless browser with a
+stand-in tracker and a stand-in companion laid out like a browser on YouTube
+(corner pair with the estimate on the wrong one, crowded pair in the middle,
+a lone button at the right edge reached from 130 px short, tabs and toolbar
+under the bar, a page that scrolls and 3.5 s passing while the list is open,
+a control that goes away), and the practice page. Not tested against the
+real YouTube on your PC: what a list offers depends on what the browser
+reports as controls (at most 200 per window, keyboard-reachable ones only).
+If a corner still cannot be reached, say which button and which browser.
+Controls no program reports can still be clicked with "Click a video or
+button".
+
+
+PREVIOUS VERSION 0.4.27 - A HEAD-MOVEMENT STEP, AND A MAP THAT CAN USE IT
+What was asked: build the calibration step in which the head is moved on
+purpose, and a map that uses it.
+
+What the recordings showed first. The gaze is the eyes' turn in the head plus
+the head's own turn. In every recorded session the head follows the dots:
+it turns by about the same small amount per screen width in calibration and
+in the checks. A map made from the eye readings alone cannot see the head's
+share, so a look made with a little more or less head than usual lands off.
+
+A map that reads the head as well (position, size, tilt, turn and nod, beside
+the eye readings) was fitted to each recorded calibration and scored on the
+checks recorded after it. Average error, map in use -> head-aware map:
+    15 Nov, wide lens:       66 and 74 px  ->  61 and 57 px
+    15 Nov, wide lens:       62 px         ->  53 px
+    20 Nov, wide lens:       110 and 122   ->  66 and 85 px
+    20 Nov, telephoto lens:  85 px         ->  67 px
+Two cautions. Its settings were chosen on these same six checks, so this is
+how well it can fit them, not a forecast. And a map fitted to still-head dots
+alone learns the head's share from the way the head follows the dots: it
+goes wrong if the head later stops following, or moves in a way calibration
+never showed (leaning in, for example). That is what the new step is for.
+
+The head-movement step. After the calibration dots, three more dots appear
+in turn, about 7 seconds each. Keep looking at the dot and slowly move your
+head: small circles with your nose, then tilt towards each shoulder and lean
+a little closer and back. Small movements are enough. The gaze stays on the
+dot, so everything that changes in the readings comes from the head.
+  - If the head does not move during the first dot, the step ends by itself
+    (about 20 seconds lost). The Skip head movement button ends it at any
+    time.
+  - It can be switched off: Setup, More setup options, Head-movement step.
+  - It is left out in Eyes close-up tracking, which cannot see the head.
+
+How the map is chosen afterwards. Three maps are compared on frames they
+were not fitted to: the plain map, the head-aware map from the still dots
+alone, and the head-aware map fitted with the head-movement frames as well.
+  - With head-movement frames: it is used if it is at least 15% better than
+    the plain map on head-movement frames and no worse on left-out dots.
+  - From the still dots alone: it is used if it is at least 3% better on
+    left-out dots, at most 15% worse on head-movement frames, and better on
+    the two together.
+  - If both qualify, the better one overall is taken. If neither does, or the
+    eyes left the dot during the step, the plain map stays.
+  - Without head-movement frames the plain map is always used, as before.
+The status line after the check says whether head position is used, and if
+not, why. A head reading is only used within the span the map was fitted on.
+
+Saved diagnostics now hold the head-movement frames, the scores of the three
+maps, and how far each eye is open in every frame (for later work on reading
+up and down). Numbers only, as before.
+
+How this was tested: unit tests with a made-up person whose head takes a
+share of the gaze (head moving, head still, eyes leaving the dot, glances
+away, saving and reading back); the six recorded checks above; the real page
+in a headless browser with a stand-in tracker (head moves, head still, Skip,
+step switched off, eyes wandering, and the 0.4.26 lens flow). No recording
+with deliberate head movement exists yet, so what the step does for a real
+person is not known. Please calibrate with the step and save diagnostics.
+
+PREVIOUS VERSION 0.4.26 - THE APP CHOOSES THE TELEPHOTO LENS ITSELF
+What was asked: the camera can zoom, so the app should zoom in by itself
+until the face is large enough.
+
+What zooming can and cannot do. In Face + eyes tracking the app already cuts
+the square around the face out of the full camera picture and follows it
+(since 0.4.18), so the face fills the tracker's picture wherever a person
+sits. Digital zoom would only enlarge the same camera pixels. What does add
+pixels on the eyes is the camera's second lens: on the EMEET C60E Dual the
+zoom control switches between a wide-angle and a telephoto lens.
+
+Measured on 20 November, same person, same morning, 25-dot calibration each:
+    wide-angle lens:  eyes 140 and 128 camera px wide, checks 110 to 125 px
+    telephoto lens:   eyes 230 and 213 camera px wide, check 85 px
+One session each, so this is an indication, not proof. The checks of both
+sessions failed, and the best check so far, 62 px, was on the wide lens in a
+session where the head stayed still. The head moving between calibration
+and check is still the larger part of the error (see NEXT below).
+
+What changed.
+  - Before a new calibration, and in Set camera / preview, the app looks at
+    how large the face is on the wide-angle lens. If the face would fit in the
+    telephoto picture, it switches to the telephoto, waits for the lens and
+    the exposure to settle, and watches for a few seconds.
+  - Whole face inside the telephoto picture: the telephoto stays, and the
+    status line says how many camera pixels each eye now has. The calibration
+    is made and saved for that lens, and the camera is put back on it at every
+    later start.
+  - Face cut off, or sitting too close for it: the wide-angle lens stays, and
+    the status line says why.
+  - A lens pressed by hand (Wide-angle or Telephoto in camera setup) is
+    remembered for that person and camera. After Wide-angle is pressed the app
+    no longer tries the telephoto until Telephoto is pressed.
+  - A saved calibration is never disturbed: Use saved calibration keeps the
+    lens it was made with. Eyes close-up tracking is not changed.
+  - Saved diagnostics now say which lens was chosen, by whom, and why.
+The trial adds about five seconds before the first calibration on a camera
+with two lenses. Cameras with one lens behave exactly as before.
+
+How this was tested: unit tests of the decision; the real page in a headless
+browser with a stand-in two-lens camera and tracker (face fits, face cut off,
+sitting too close, lens pressed by hand, calibrate - pass - save - reopen with
+the camera back on its wide lens). Not yet tried on the real camera.
+
+NEXT (built in 0.4.27): the eye reading shifts when the head moves a little,
+and a calibration made with a still head does not know by how much. A
+calibration step in which the head is moved on purpose, and a map that uses
+it.
+
+PREVIOUS VERSION 0.4.25 - BUTTONS AS LARGE AS THE ACCURACY NEEDS
+What was reported: a look at a letter starts its selection, then the app
+"thinks" a neighbouring letter is looked at although the eyes have not moved,
+and the letter is not held long enough to be selected.
+
+What the saved diagnostics showed. The keys were 163 x 44 px. In that session
+the estimates lay up to 151 px across and 102 px down from the gaze nine times
+in ten (both checks failed, at 79 and 89 px average; the map in use was a
+five-dot realignment, not the full calibration that had checked at 62 px).
+A 44 px key cannot hold an estimate that moves 100 px: one letter took 15
+restarts of its lock, the 42 px Hide keyboard button 20.
+
+Measured on recorded looks. The checks record a person looking at a known
+place for about 2.4 s. 35 such looks from three sessions were replayed through
+the app's own pointer, lock and dwell code, with a key of a given size under
+the gaze and equal keys around it:
+    key as large as the reach:         right key  8 of 35, wrong key 16
+    one and a half times the reach:    right key 19,       wrong key 11
+    twice the reach:                   right key 30,       wrong key  1
+    two and a half times the reach:    right key 35,       wrong key  0
+    the keyboard's 163 x 44 px keys:   right key  4 of 35
+Holding on to a key more stubbornly once it is locked was tried on the same
+looks. It gave fewer looks without any selection and more wrong keys, and no
+more right ones, so it was not kept: the size of the key decides.
+
+What changed. The latest accuracy check, passed or failed, says how far the
+estimates reach. The typing panel and the floating menus are sized from it:
+  - a reach small enough for the 44 px keyboard (25 px down): nothing changes;
+  - otherwise word suggestions, actions and keys share one row height of at
+    least twice the reach, as far as four rows fit the screen;
+  - when 30 keys of that size fit, all letters are shown at once;
+  - when they do not, keys are two and a half times the reach and letters are
+    chosen in two looks: a group (A B C D E), then the letter. Back leaves a
+    group;
+  - floating menus get buttons of two and a half times the reach, up to four
+    side by side along the bottom so that the middle of the screen stays free.
+After a failed check with controls opened for a test, the same sizes apply.
+
+With the errors of the recorded sessions played into the real page (headless
+browser, stand-in tracker): 0.4.24 typed no letter of "hello" in 100 s with the
+errors of the failed-check session; 0.4.25 typed it without a wrong letter at
+about 3 s a letter (two looks each). With an accurate stand-in the keyboard and
+menus are exactly as before. Not yet tried by a person.
+
+What it costs: the typing panel then covers most of the screen (Hide keyboard
+shows what is behind it), and a letter can take two looks. A calibration that
+checks better brings the smaller keyboard back by itself.
+
+PREVIOUS VERSION 0.4.24 - THE POINTER RE-CENTRES ITSELF
+What three recorded sessions showed. A fresh calibration in good light checks
+at about 62 px. It does not stay there: the eye reading for the same place on
+the screen moves by a camera pixel or two as a person shifts in the seat, and
+one camera pixel is about 57 px on the screen. One check read 211 px left on
+every dot minutes after its calibration. One passed at 62 px while six of its
+seven dots read 29 to 56 px low, and letters then had to be looked at along
+their top edge to be selected. A calibration reused 77 minutes later was more
+than 100 px off.
+
+A shift shared by all dots of a check is now corrected after a passed check
+as well as after a failed one, and on every check a person starts, not once
+per map. After a failed check the correction is measured with a fresh check;
+after a passed one it is applied and reported in the bottom bar.
+
+Re-centring from use. Every button selected by looking at it says roughly
+where the eyes were: on that button. When the estimates of several selections
+in a row lie to the same side of their buttons, by more than the scatter of
+those selections allows for, all estimates are moved back. It is hard to
+convince on purpose:
+  - a selection counts only if the next one does not take it back (Back,
+    delete);
+  - a large button says little, a small one more; how widely a person looks
+    about on buttons is learned as they go;
+  - at least six selections, most of them to the same side;
+  - one correction moves the pointer by 6% of the screen at most, all of them
+    together by 18%;
+  - squares of the zoom grid are ignored: there a person looks at the thing to
+    click, not at the middle of the square.
+The bottom bar says when the pointer was re-centred and by how much. A check
+makes what was learned part of the map. It can be switched off under More
+setup options (Re-centre the pointer from the buttons I select).
+
+What it cannot see: a person who has learned to aim off (looking at the top
+edge of a key so that the key is selected) hides the shift, because the
+estimates then do lie on the key. Looking at the middle of a button lets the
+app learn; Quick alignment (More controls) or Check accuracy (Pause) corrects
+a shift at once.
+
+In simulation (people who look at the middle of buttons, loosely about them,
+or anywhere on them): with nothing wrong it acts 0 to 3 times in 3000
+selections; a 90 px shift is corrected after about 10 key selections, a 60 px
+shift after about 20, a 211 px shift after about 10 on keys or large tiles.
+Not yet measured on a real session.
+
+Save diagnostics now also records, for every selection: the button's size,
+where the estimates lay on it, whether it counted, what was corrected, and
+what the frames since the selection before were spent on (dwell advancing, on
+the button but not steady, on another button, on no button, no usable
+estimate). That is for finding out why a look sometimes does not lock.
+
+PREVIOUS VERSION 0.4.23 - DIAGNOSTICS CAN BE SAVED AFTER A PASSED CHECK
+Save diagnostics was only in the result window, and that window opens only
+when an accuracy check fails. After a check that passed, there was no way to
+save the file.
+
+  - A Save diagnostics button is now in the bottom bar, next to Back, as soon
+    as a calibration or a check has been recorded. It is for the mouse and is
+    not a gaze target. If a click does not reach it while eye control is on,
+    press Pause first.
+  - The same is a tile under More controls > Other keys & settings, for saving
+    by gaze.
+  - The bottom bar keeps the outcome in view: the numbers of a passed check
+    (average, and what 90% of the readings were within), and the name of the
+    file that was saved. The status line at the top is rewritten many times a
+    second while tracking runs, so nothing stays readable there.
+
+PREVIOUS VERSION 0.4.22 - THE EXPOSURE IS TAKEN OVER CAUTIOUSLY
+The camera test of 0.4.21 was run on an EMEET SmartCam C60E 4K Dual. It
+showed that the camera obeys the app: seven of its eight adjustments change
+the picture. Two results decided this version:
+  - the gain does nothing while the camera sets its own exposure, and works
+    once the exposure time is held;
+  - a quarter of the exposure time the camera reports made the picture
+    brighter. Left to itself, this camera exposes for less than it reports.
+Set brightness for my eyes in 0.4.21 held the exposure at the reported time.
+On this camera that could have made the picture far too bright, possibly so
+bright that the eyes were lost.
+
+Set brightness for my eyes now:
+  - takes the exposure over two stops below the reported time and lengthens
+    it stop by stop, never beyond one frame;
+  - then adjusts the gain, and after that the brightness;
+  - when the picture is burnt out or black and the eyes cannot be read in it,
+    walks it back without readings until they can;
+  - puts the picture back as it was when the result is not clearly better for
+    the eyes than what the camera started with, when the eyes are lost from
+    view for another reason, and when the preview is left halfway.
+
+Tested on 40,000 simulated cameras (different true exposures and gains,
+adjustments that do nothing, eyes lost when too bright or too dark, readings
+that wobble): it always ends, never leaves the eyes worse lit than it found
+them, and reaches the working range whenever the camera can. Not yet tested on
+a real camera.
+
+PREVIOUS VERSION 0.4.21 - CAMERA ADJUSTMENTS CHECKED AGAINST THE PICTURE
+Reported: "Set brightness for my eyes" changed nothing, no adjustment seemed to
+move, and the camera did not zoom.
+
+What was wrong. The button tried a single adjustment and stopped. Under
+Windows that adjustment ("exposure compensation") is the camera's gain, and a
+camera ignores a gain while it sets its own exposure. Its exposure-time steps
+were also smaller than the whole stops Windows knows, so they rounded back to
+the value the camera already had.
+
+Set brightness for my eyes now judges every change by the eyes in the picture
+and not by what the camera reports. It tried, in this order, and put back
+whatever did nothing (0.4.22 changed how the exposure is taken over):
+  1. exposure / gain, with the camera's own exposure still running;
+  2. gain with the exposure time held where the camera had it (the app takes
+     the exposure over, so that the camera obeys the gain);
+  3. brightness;
+  4. exposure time, in whole stops and never longer than one frame.
+It ends by saying what the eye brightness is and what it tried.
+
+Test which adjustments this camera obeys (Set camera / preview > Picture) moves
+each adjustment the camera reports, watches whether the picture follows, puts
+it back, and lists the result for each. It takes about 20 seconds and the
+picture changes while it runs. A camera can report a value that it ignores, so
+the picture is the only witness.
+
+Put the picture back as it was restores the values the camera had before this
+app first changed any (kept per camera).
+
+The sliders show both numbers when the camera reports a different value from
+the one asked for.
+
+Once the app holds the exposure, the camera no longer adapts when the room
+gets lighter or darker. The status line says when the eyes are dark again.
+
+Zoom. At 4K this camera's zoom control only switches between its two lenses
+(the Wide-angle and Telephoto buttons). Any further zoom would be a crop of
+the picture, and the tracker already reads a square around the face at the
+camera's full detail. The preview now draws that square (dashed) and states
+its size. The picture itself is not zoomed.
+
+Save diagnostics now also records the camera's adjustments, every request
+made to it and what came of it, the result of the test, and how bright each
+eye was in every frame. Numbers only, as before.
+
+Tested with simulated cameras (one that obeys once its exposure is held, one
+that obeys nothing). Not yet tested on a real camera.
+
+PREVIOUS VERSION 0.4.20 - REGIONAL CORRECTION FROM A RECORDED SESSION, FASTER FIT
+These changes come from replaying one saved diagnostics file (Face + eyes, 27
+dots, two accuracy checks) through the app's own code.
+
+What the session showed. Frame-to-frame noise was small. The error was a
+pattern that repeated at the same screen places in both checks: the readings do
+not follow a straight map across the screen. The app already had a regional
+correction for that, and on this session every stable variant of it beat every
+uncorrected map on both checks. It was not used, because it had to score 10%
+better with dots left out, and that test hides most of its gain: a left-out
+edge or corner dot has to be predicted from one side only.
+
+Now the regional correction is used when it scores at least 3% better with dots
+left out, is better on most of those dots, gains at least a few pixels, and
+does not make the worst left-out dot worse. On the recorded session this
+lowers the average error of the two checks from 88 to 66 px and from 92 to 74
+px. In simulated sessions with nothing to correct it is chosen about 1 time in
+16 and then costs about 10 to 20 px in that session.
+
+The wait after the last calibration dot is shorter. A lookup was repeated for
+every frame instead of once per dot; on the recorded session the fit took about
+15 seconds and now takes about 2.
+
+Dark eyes are reported. In that session the white of the eye was 50 on a scale
+of 0 to 255 (130 or more works best). The status line and the copied report now
+say so. More light in front of the face, or Picture > Set brightness for my
+eyes in Set camera / preview, is the remedy.
+
+Also learned: the camera-pixel iris reading added in 0.4.18 was worse than the
+eye model's reading in that session and was missing whenever the person looked
+at the lower part of the screen. Calibration did not use it, as designed.
+
+PREVIOUS VERSION 0.4.19 - SHARED SHIFT CORRECTED AFTER A CHECK, DIAGNOSTICS
+Two accuracy checks from the same person (with and without glasses) showed
+steady readings but nearly every check sitting to the same side of its dot:
+about 90 px right with glasses, about 85 px up without. That is not a bad map:
+everything has moved together since calibration (posture, glasses settling).
+
+When a check does not pass and its seven checks agree on such a shift, the app
+now corrects it once and runs a fresh check by itself. The first check cannot
+confirm its own correction, so the fresh one decides. The result names the
+shift and the figures from before the correction. A check that passes, or whose
+checks do not agree on one direction, is left alone.
+
+Fixed: a map that calibration fitted to the camera-pixel iris reading (0.4.18)
+could not be stored by the Windows app, which keeps numbers and true/false
+only. It was kept in the page's own storage instead, so it could be missing or
+out of date after a restart. The choice is now stored as a flag.
+
+Save diagnostics (beside Copy report) writes one file of numbers: for each
+calibration and check dot the eye and head readings, plus the map and the check
+results. No images and no name. Nothing is written unless the button is
+pressed. In the Windows app the file goes to a "diagnostics" folder beside the
+program; its path is shown. It lets a recorded session be replayed to find
+where an error comes from before anything is changed.
+
+PREVIOUS VERSION 0.4.18 - FACE + EYES AT A DISTANCE, GLASSES, CAMERA PICTURE
 Face + eyes now works far from the camera. The tracker used to be handed the
 whole picture, so a distant face was a small part of it and, further away, was
 not found at all. It is now handed a square around your face at the camera's
@@ -212,7 +1425,7 @@ YOUTUBE / GOOGLE
 2. Choose a letter group, then a smaller group and a letter. The draft stays visible above the letters.
 3. Space and Delete last letter stay beside the named Search button.
 4. Choose Search YouTube / Search Google. This opens the results directly in your default browser. No separate Enter, search-field click, or Type into app step is needed.
-5. The browse controls stay over the page. Scroll down / Scroll up moves it; Click a video or button opens zoom selection. Search or type returns to the four tasks.
+5. The browse controls stay over the page. Scroll down / Scroll up moves it; Click a video or button opens zoom selection. Search or type returns to the four tasks. Top & bottom controls lists what lies under the top and bottom bars (browser tabs, address bar). Controls too close together to tell apart get one outline; holding it opens a list of them.
 Text options includes uppercase/lowercase, Clear this draft, and the website homepage.
 
 TYPING INTO ANOTHER APP

@@ -94,3 +94,53 @@ test('both eyes are read together, and the reading follows the iris, not the mod
  // The iris moved by .12 of the eye's width; the reading must move by the same.
  for(let i=0;i<2;i++)assert.ok(Math.abs(right[i].h-left[i].h-.12)<.004,`eye ${i}: ${right[i].h-left[i].h}`);
 });
+
+// 0.4.33. A person without glasses, a lamp on the face, eyes looking at the bottom of the screen:
+// the upper lid lies over the top of the iris, and its skin is lit more brightly than the white
+// of the eye. On 20 Nov (23:22) that was refused as a reflection in 31% of the frames at the
+// bottom row of dots, and in 0 to 1% when the eyes were wide open.
+const lamp=c=>c[0]-c[2]>40&&c[0]>140?[246,239,231]:c[0]-c[2]<=40&&c[1]>150?c.map(v=>v*.62):c;
+const lowered=(i,extra={})=>drawn(100,i,{openUp:.03,openLo:.2,gaze:[0,.02],overlay:lamp,...extra});
+
+test('a lid over the top of the iris is not a reflection',()=>{
+ for(let i=0;i<6;i++){
+  const eye=lowered(i),before=eyeLight(eye.gray,200,160,eye.truth),now=eyeLight(eye.gray,200,160,eye.truth,eye.lids);
+  // Judged over the whole iris circle, the lit lid reads as a reflection large enough to refuse the eye.
+  assert.ok(before.glare>GLARE_LIMIT,`i=${i}: ${before.glare}`);assert.equal(before.covered,undefined);
+  // Judged over the open part of the eye, there is none; the lid's share is reported for what it is.
+  assert.ok(now.glare<.03,`i=${i}: ${now.glare}`);assert.ok(now.covered>.3&&now.covered<.55,`covered ${now.covered}`);
+  assert.ok(Math.abs(now.white-before.white)<12&&now.contrast>40,'the white of the eye and the iris are read as before');
+  // The eye model's lid lines are never exact: a few pixels either way must not bring the fault back.
+  for(const shift of [-6,-3,3,6]){
+   const lids={upper:eye.lids.upper.map(p=>({x:p.x,y:p.y+shift})),lower:eye.lids.lower.map(p=>({x:p.x,y:p.y-shift}))},light=eyeLight(eye.gray,200,160,eye.truth,lids);
+   assert.ok(light.glare<GLARE_LIMIT/2,`lid lines ${shift} px out: ${light.glare}`);
+  }
+  assert.equal(lightSummary(now).covered,Math.round(now.covered*100)/100);assert.equal('covered' in lightSummary(before),false);
+ }
+ // An eye wide open is read the same with and without the lines.
+ const wide=drawn(100,2,{gaze:[0,0],overlay:lamp}),a=eyeLight(wide.gray,200,160,wide.truth),b=eyeLight(wide.gray,200,160,wide.truth,wide.lids);
+ assert.ok(a.glare<.03&&b.glare<.03&&b.covered<.12&&Math.abs(a.white-b.white)<6);
+ // Lid lines that are not lines are ignored, not obeyed.
+ for(const bad of [{upper:[],lower:[]},{upper:[{x:1,y:NaN},{x:2,y:2}],lower:wide.lids.lower},{upper:wide.lids.upper}])assert.deepEqual(eyeLight(wide.gray,200,160,wide.truth,bad),a);
+});
+
+test('a real reflection in the open part of the eye is still measured and still refused when large',()=>{
+ const spot=(radius,dy=6)=>(c,x,y)=>Math.hypot(x-100,y-(80+2+dy))<radius?[255,255,255]:lamp(c);
+ const small=lowered(3,{overlay:spot(4)}),large=lowered(3,{overlay:spot(11)});
+ const s=eyeLight(small.gray,200,160,small.truth,small.lids),l=eyeLight(large.gray,200,160,large.truth,large.lids);
+ assert.ok(s.glare>.02&&s.glare<GLARE_LIMIT,`small ${s.glare}`);assert.ok(l.glare>GLARE_LIMIT,`large ${l.glare}`);
+ // The burnt-out share is taken over the eye, not over the lids around it.
+ const burnt=c=>c[0]-c[2]>40&&c[0]>140?[255,255,255]:lamp(c),skin=lowered(4,{overlay:burnt});
+ assert.ok(eyeLight(skin.gray,200,160,skin.truth).clipped>.25);assert.ok(eyeLight(skin.gray,200,160,skin.truth,skin.lids).clipped<.02);
+});
+
+test('read from a camera frame, both eyes under lowered lids are lit eyes without a reflection',()=>{
+ const options={width:1920,height:1080,distance:.13,irisDx:0,irisDy:.02,openUp:.03,openLo:.2},scene=twoEyes(options);
+ const detail=new IrisDetail(sceneReader({noise:4,blur:1,overlay:lamp}));
+ const eyes=scene.eyes.map(eye=>({a:{x:eye.cx-eye.w/2,y:eye.cy},b:{x:eye.cx+eye.w/2,y:eye.cy},iris:{x:eye.cx+1,y:eye.cy+.02*eye.w+1,r:.2*eye.w},...lidLines({...eye,...options})}));
+ const readings=detail.refine(scene,eyes);
+ for(const r of readings){assert.ok(r.light,'lit');assert.ok(r.light.glare<=GLARE_LIMIT/4,`glare ${r.light.glare}`);assert.ok(r.light.covered>.25);}
+ // The same frame without lid lines: what 0.4.32 saw.
+ const blind=new IrisDetail(sceneReader({noise:4,blur:1,overlay:lamp})).refine(scene,eyes.map(({upper,lower,...eye})=>eye));
+ assert.ok(blind.every(r=>r.light&&r.light.glare>GLARE_LIMIT));
+});

@@ -24,7 +24,7 @@
 
 body.desktop.viewing{background:transparent}#save-status{position:absolute;bottom:100%;left:16px;background:#fffefd;color:#40204f;font-size:12px;max-width:85%;padding:2px 8px;border-radius:6px;pointer-events:none}#save-status:empty{display:none}body.viewing #save-status{display:none}#result-dialog .actions{grid-template-columns:repeat(2,1fr)}
 
-#tracking-info{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);max-width:min(680px,90vw);background:#fff;color:#40204f;border:2px solid #755281;border-radius:10px;padding:8px 12px;font-size:14px;z-index:16;pointer-events:none}#camera{width:180px;height:135px}#setup-controls,#retry-point{font-size:14px;padding:8px;min-height:48px}#cal-message{pointer-events:none}
+#tracking-info{position:fixed;left:50%;bottom:88px;transform:translateX(-50%);max-width:min(680px,90vw);background:#fff;color:#40204f;border:2px solid #755281;border-radius:10px;padding:8px 12px;font-size:14px;z-index:16;pointer-events:none}#camera{width:180px;height:135px}#setup-controls,#retry-point,#skip-move{font-size:14px;padding:8px;min-height:48px}#cal-message{pointer-events:none}
 .calibrating #pause{display:none}#workspace:not(.calibrating) #setup-controls{display:none}
 #accuracy-preview{position:absolute;inset:115px 40px 170px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);place-items:center;gap:20px}#accuracy-preview span{display:grid;place-items:center;width:38px;height:38px;border:3px solid #693577;background:#fff;border-radius:50%;color:#40204f;font-size:16px}.previewing #gaze{background:#1e6599;box-shadow:0 0 0 3px #1e6599}.previewing .statusbar strong{min-width:0}#preview-check{font-size:14px;padding:8px}
 .previewing #progress{display:none}
@@ -88,10 +88,21 @@ body:not(.desktop).reading #practice-scene{visibility:visible}
 .composing:has(.keyboard) .compose-actions button{min-height:48px;font-size:15px}
 .tiles.navigation.view{gap:10px;box-shadow:none;background:transparent}
 .tiles.navigation button{font-size:16px;min-height:44px;gap:0;border-radius:10px}
-#focus-target{position:absolute;z-index:5;border:3px solid #693577;outline:2px solid #fff;border-radius:6px;background:#69357718;pointer-events:none}
-#focus-target span{position:absolute;left:0;top:100%;max-width:300px;padding:3px 8px;border-radius:5px;background:#693577;color:#fff;font-size:13px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#focus-target,#list-outline{position:absolute;z-index:5;border:3px solid #693577;outline:2px solid #fff;border-radius:6px;background:#69357718;pointer-events:none}
+#cal-dot{pointer-events:none}
+#cal-dot.moving::after{content:'';position:absolute;inset:-18px;border-radius:50%;background:conic-gradient(#693577 calc(var(--move,0)*1turn),#d9c7df 0);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 7px),#000 calc(100% - 6px));mask:radial-gradient(farthest-side,transparent calc(100% - 7px),#000 calc(100% - 6px))}
+#cal-dot.too-far{background:#a85400;box-shadow:0 0 0 4px #a85400}#cal-dot.too-far::after{background:conic-gradient(#a85400 calc(var(--move,0)*1turn),#ecd3b8 0)}
+#move-label{position:absolute;transform:translateX(-50%);z-index:11;max-width:min(560px,92vw);padding:6px 16px;border:2px solid #755281;border-radius:12px;background:#fff;color:#2a1934;font-size:22px;font-weight:700;line-height:1.3;text-align:center;pointer-events:none}
+#seat-guide{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:min(640px,calc(100vw - 24px));max-height:calc(100vh - 180px);overflow:auto;text-align:center;padding:18px 24px;background:#fff;color:#2a1934;border:2px solid #755281;border-radius:16px;z-index:12}
+#seat-guide h2{margin:0 0 4px;font-size:24px}#seat-guide p{margin:6px 0}#seat-drawing{display:block;width:100%;max-height:250px;background:#fff;font:14px Manrope,system-ui,sans-serif}#seat-drawing text{fill:#40204f}
+#seat-feedback{font-size:20px;font-weight:700;min-height:1.6em}#seat-progress{width:100%;height:18px}#seat-guide .actions{margin-top:10px;justify-content:center}
+#seat-guide.matched #seat-feedback{color:#00626a}#seat-guide.matched #seat-live-face,#seat-guide.matched #seat-live-side{stroke:#00626a}
+@media(max-height:700px){#seat-guide{padding:12px 16px}#seat-drawing{max-height:170px}#seat-feedback{font-size:17px}}
+.calibrating.dot-top:has(#cal-dot:not([hidden])) .statusbar>*,.calibrating.dot-bottom:has(#cal-dot:not([hidden])) .controlbar>*{opacity:.18;transition:opacity .2s}
+#focus-target.several,#list-outline{border-style:dashed;background:#69357710}
+#focus-target span,#list-outline span{position:absolute;left:0;top:100%;max-width:300px;padding:3px 8px;border-radius:5px;background:#693577;color:#fff;font-size:13px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .practice-cards button{height:110px;background:#fff;border:2px solid #755281;border-radius:12px;font-size:20px}
-body.reading #focus-target{visibility:hidden}
+body.reading #focus-target,body.reading #list-outline{visibility:hidden}
 @media(max-height:650px){.tiles.keyboard{gap:6px}.tiles.keyboard button{font-size:19px}.composing:has(.keyboard) #draft-text{height:36px}.composing:has(.keyboard) #composer{padding:6px 10px}.composing:has(.keyboard) .compose-actions button{min-height:42px}}
 @media(max-width:700px){.composing:has(.keyboard) .compose-actions{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.composing:has(.keyboard) .compose-actions button{font-size:12px;padding:4px}.tiles.keyboard{gap:5px}.tiles.keyboard button{font-size:18px}.tiles.navigation button{font-size:13px}}
 
@@ -120,12 +131,12 @@ body.desktop.typing-docked,body.desktop.active.typing-docked:not(.viewing){backg
 #typing-dock #draft-text{height:38px!important;font-size:19px;padding:5px 10px}
 #typing-dock #draft-text::placeholder{font-size:14px}
 #word-suggestions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(64px,.5fr);gap:6px;margin:6px 0}
-#word-suggestions button{height:44px;min-height:44px;padding:4px 8px;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+#word-suggestions button{height:var(--typing-button,44px);min-height:var(--typing-button,44px);padding:4px 8px;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
 #word-suggestions .gaze-active{box-shadow:inset 0 0 0 3px #693577;background:#ead9f1}
 #typing-dock .compose-actions{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px}
 #typing-dock .compose-actions:has(#draft-enter:not([hidden])){grid-template-columns:repeat(7,minmax(0,1fr))}
-#typing-dock .compose-actions button{font-size:14px;min-height:42px;padding:4px 6px}
-#typing-dock .tiles{position:static!important;inset:auto!important;width:100%!important;margin:0;gap:6px;height:var(--typing-key-height,144px)!important;grid-template-rows:repeat(var(--typing-rows,3),44px)!important;background:transparent!important;box-shadow:none!important}
+#typing-dock .compose-actions button{font-size:14px;min-height:var(--typing-button,42px);padding:4px 6px}
+#typing-dock .tiles{position:static!important;inset:auto!important;width:100%!important;margin:0;gap:6px;height:var(--typing-key-height,144px)!important;grid-template-rows:repeat(var(--typing-rows,3),var(--typing-row,44px))!important;background:transparent!important;box-shadow:none!important}
 #typing-dock .tiles button{font-size:20px;padding:4px;min-height:44px;border-radius:8px;gap:0}
 #typing-dock .tiles.compact-menu{transform:none;max-width:none;max-height:none;padding:0;border:0}
 #typing-dock .tiles.compact-menu button{font-size:14px;line-height:1.1}
@@ -144,6 +155,14 @@ body.desktop.typing-docked,body.desktop.active.typing-docked:not(.viewing){backg
 body.dim-capture #workspace.calibrating:has(#cal-dot:not([hidden])){background:#0e0a12}
 body.dim-capture #workspace.calibrating:has(#cal-dot:not([hidden])) .statusbar,body.dim-capture #workspace.calibrating:has(#cal-dot:not([hidden])) .controlbar{background:#1b1422;color:#eadff0;border-color:#3a2c44}
 body.dim-capture #workspace.calibrating:has(#cal-dot:not([hidden])) #hint,body.dim-capture #workspace.calibrating:has(#cal-dot:not([hidden])) #status,body.dim-capture #workspace.calibrating:has(#cal-dot:not([hidden])) #mode-label{color:#eadff0}
-#picture-controls label{display:block;margin:.35rem 0}
+#picture-controls label{display:block;margin:.35rem 0}#picture-controls small{color:#5b4a63}.typing-roomy #typing-dock .tiles button{font-size:30px}.typing-roomy #typing-dock .compose-actions button{font-size:19px}.typing-roomy #word-suggestions button{font-size:24px}.typing-roomy #typing-dock #draft-help{display:none}#save-status{font-size:13px;min-width:0;overflow-wrap:anywhere}#save-status:empty{display:none}#picture-report{margin:.3rem 0 .5rem;padding-left:1.2rem}#picture-report li{margin:.1rem 0}
 label.check{display:flex;gap:.5rem;align-items:center}
 label.check input{width:auto}
+/* 0.4.33: typing into another app shows the keys and nothing else; the word row only while it has words. */
+.typing-direct #typing-dock #composer{display:none}
+.typing-direct #typing-dock{padding-top:10px}
+#word-suggestions.empty{display:none}
+.typing-direct .controlbar #typed{font-size:18px;font-weight:700;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+/* 0.4.35: why a start did not happen, on the setup page. Small print under the panel read as "the button does nothing". */
+#welcome-status.alert{margin:14px 0;padding:12px 16px;border-left:5px solid #b3261e;border-radius:10px;background:#fdecea;color:#5c1410;font-weight:700}
+#welcome-status:empty{display:none}

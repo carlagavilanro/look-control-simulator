@@ -150,3 +150,22 @@ test('legacy maps do not bypass rotation checks in newer contributing maps',()=>
  const r=estimateHeadPositions({...feature(.3,.7,.5),yaw:.7},endpoints);
  assert.equal(r.point,null);assert.equal(r.reason,'head-position');assert.ok(r.headReasons.includes('yaw'));
 });
+
+// ---- 0.4.29: back to the calibration position before a check ----
+import {calibrationReturnPlan,calibrationReturnFeedback,RETURN_WITHIN} from '../public/screen-positions.mjs';
+test('before a check the head is guided back to where the map was calibrated',()=>{
+ const head={x:.38,y:.69,scale:.31,roll:.04,yaw:.56,pitch:.49},plan=calibrationReturnPlan({head});
+ assert.deepEqual(plan.fields,['x','y','scale','roll','yaw','pitch']);assert.deepEqual(plan.target,head);
+ const here=calibrationReturnFeedback({...head},plan);assert.ok(here.ready&&here.worst===0&&/In position/.test(here.message));
+ // As recorded: 6% of the picture lower and nodded further down.
+ const low=calibrationReturnFeedback({...head,y:.748,pitch:.533},plan);
+ assert.equal(low.ready,false);assert.ok(low.worst>1);assert.match(low.message,/^Move a little higher\.$/);
+ // Ordinary settling stays in position; the edge of the map's range does not.
+ assert.ok(calibrationReturnFeedback({...head,yaw:.56+.07*.5,roll:.04+.12*.4},plan).ready);
+ const edge=calibrationReturnFeedback({...head,yaw:.56+.07*.9},plan);assert.equal(edge.ready,false);assert.ok(edge.worst>RETURN_WITHIN&&edge.worst<1);assert.match(edge.message,/^Turn a little/);
+ // Nothing to compare with, or no face: never ready, never a crash.
+ assert.equal(calibrationReturnPlan({}),null);assert.equal(calibrationReturnPlan(null),null);
+ assert.equal(calibrationReturnFeedback(null,plan).ready,false);assert.equal(calibrationReturnFeedback({...head,pitch:NaN},plan).ready,false);
+ // A map without turn and nod readings is matched on the four it has.
+ const four=calibrationReturnPlan({head:{x:.38,y:.69,scale:.31,roll:.04}});assert.deepEqual(four.fields,['x','y','scale','roll']);assert.ok(calibrationReturnFeedback({x:.38,y:.69,scale:.31,roll:.04},four).ready);
+});

@@ -11,6 +11,8 @@ jobs:
   build-and-test:
     runs-on: windows-latest
     timeout-minutes: 20
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,3 +39,17 @@ jobs:
       - name: Firmware signal and receiver-archive tests
         run: node --test hardware/test/*.test.mjs
         working-directory: hands-free
+      # The website's download link points at the newest release, so the app built and tested above is published there.
+      - name: Publish the Windows app as a release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./hands-free/desktop-control/package.json').version")
+          zip=hands-free/website/public/downloads/Hands-Free-Screen-Control-Windows.zip
+          if gh release view "v$version" >/dev/null 2>&1; then
+            gh release upload "v$version" "$zip" --clobber
+          else
+            gh release create "v$version" "$zip" --title "Hands Free $version" --notes "Hands Free Screen Control $version for Windows. Unzip, then follow START-HERE.txt." --target "$GITHUB_SHA" --latest
+          fi

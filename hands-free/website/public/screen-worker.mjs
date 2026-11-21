@@ -1,5 +1,5 @@
 import {FaceLandmarker,FilesetResolver} from './vendor/vision_bundle.mjs';
-import {screenFeature,screenHeadFeature} from './screen-gaze.mjs';
+import {screenFeature,withOpenings,screenHeadFeature} from './screen-gaze.mjs';
 import {eyeOverlay} from './screen-eye-overlay.mjs';
 import {EyeCropTracker,BinocularAgreement} from './screen-eye-crop.mjs';
 import {IrisDetail,lightSummary,GLARE_LIMIT} from './screen-iris-detail.mjs';
@@ -41,6 +41,7 @@ self.onmessage=async({data})=>{
     if(settle>0&&points){settle--;quality.reason='framing';}
     else{
      feature=screenFeature(points,width/height,height,quality,agreement,trust);
+     withOpenings(feature,quality);
      if(feature&&readings&&trust.every(Boolean)&&readings.every(r=>Number.isFinite(r.h)))feature.alt={h:(readings[0].h+readings[1].h)/2,v:(readings[0].v+readings[1].v)/2,lh:readings[0].h,lv:readings[0].v,rh:readings[1].h,rv:readings[1].v};
     }
     const head=screenHeadFeature(points,width/height);

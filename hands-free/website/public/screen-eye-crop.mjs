@@ -59,9 +59,11 @@ export function eyeCropMeasurement(points,width,height){
 // good frames whenever head angle or gaze added to that natural difference.
 // This keeps the same tolerance but centres it on the person's usual difference.
 export class BinocularAgreement{
- constructor({h=.2,v=.12,settle=30,rate=.03}={}){this.h=h;this.v=v;this.settle=settle;this.rate=rate;this.reset();}
- reset(){this.count=0;this.dh=0;this.dv=0;this.misses=0;}
- check(dh,dv){
+ constructor({h=.2,v=.12,settle=30,rate=.03,memory=9000,least=150,spread=.0004}={}){Object.assign(this,{h,v,settle,rate,memory,least,spread});this.reset();}
+ reset(){this.count=0;this.dh=0;this.dv=0;this.misses=0;this.eyes=[0,1].map(()=>({n:0,x:0,y:0,xx:0,xy:0,yy:0,xh:0,yh:0,xv:0,yv:0,h:0,v:0,ax:0,ay:0}));}
+ // dh, dv: first eye's reading minus the second's. a, b: the two readings {x,y} themselves, when
+ // the caller has them; they teach how the difference changes with where the eyes look.
+ check(dh,dv,a=null,b=null){
   if(!Number.isFinite(dh)||!Number.isFinite(dv))return false;
   const known=this.count>=this.settle;
   // Until the usual difference is known, allow a wider band around zero.
@@ -69,10 +71,45 @@ export class BinocularAgreement{
   if(ok){
    const rate=known?this.rate:1/(this.count+1);
    this.dh+=rate*(dh-this.dh);this.dv+=rate*(dv-this.dv);this.count++;this.misses=0;
+   if(a&&b)[a,b].forEach((eye,i)=>this.learn(this.eyes[i],eye.x,eye.y,dh,dv,rate));
   // A learned difference that keeps rejecting everything was learned from bad
   // frames. Start again rather than stay locked out.
   }else if(++this.misses>=90)this.reset();
   return ok;
+ }
+ // Running sums of one eye's reading against the difference, fading over `memory` frames, and
+ // where that eye was looking lately (ax, ay: at the same rate as dh and dv above).
+ learn(e,x,y,dh,dv,rate){
+  if(![x,y].every(Number.isFinite))return;
+  const keep=1-1/this.memory;for(const k of ['n','x','y','xx','xy','yy','xh','yh','xv','yv','h','v'])e[k]*=keep;
+  e.n++;e.x+=x;e.y+=y;e.xx+=x*x;e.xy+=x*y;e.yy+=y*y;e.xh+=x*dh;e.yh+=y*dh;e.xv+=x*dv;e.yv+=y*dv;e.h+=dh;e.v+=dv;
+  e.ax+=rate*(x-e.ax);e.ay+=rate*(y-e.ay);
+ }
+ // The difference to expect when only one eye is read (seen: 0 the first, 1 the second), from
+ // where that eye is looking.
+ //
+ // The difference is not one number. Each eye's up/down reading is taken against the line through
+ // its two corners, and that line is not level in the eye: as the iris moves across, its reading
+ // rises in one eye and falls in the other. In four recorded sessions the up/down difference
+ // changed by about .06 from the left edge of the screen to the right, more than the whole
+ // top-to-bottom change of the reading itself (.04 to .05). With one fixed difference, hiding
+ // one eye moved the pointer by 70 to 230 px in a typical frame and by 230 to 600 px in one frame
+ // of ten; with the difference taken from where the seen eye looks, by 20 to 80 px.
+ //
+ // The slopes come from the running sums and are trusted in proportion to how widely the eye has
+ // looked about (an eye that has only looked at one place says nothing about slopes, and the
+ // answer is then the usual difference, as before). The level comes from the last second or so.
+ expected(seen,x,y){
+  const e=this.eyes[seen],usual={dh:this.dh,dv:this.dv};
+  if(!e||e.n<this.least||![x,y].every(Number.isFinite))return usual;
+  const mx=e.x/e.n,my=e.y/e.n,vxx=e.xx/e.n-mx*mx+this.spread,vyy=e.yy/e.n-my*my+this.spread,vxy=e.xy/e.n-mx*my,det=vxx*vyy-vxy*vxy;
+  if(!(det>1e-12))return usual;
+  const slopes=(sx,sy,s)=>{const cx=sx/e.n-mx*s/e.n,cy=sy/e.n-my*s/e.n;return [(cx*vyy-cy*vxy)/det,(cy*vxx-cx*vxy)/det];};
+  const kh=slopes(e.xh,e.yh,e.h),kv=slopes(e.xv,e.yv,e.v),ux=x-e.ax,uy=y-e.ay;
+  // Never further from the usual difference than two eyes that are both read may be.
+  const within=(v,middle,band)=>Math.max(middle-band,Math.min(middle+band,v));
+  const dh=within(this.dh+kh[0]*ux+kh[1]*uy,this.dh,this.h),dv=within(this.dv+kv[0]*ux+kv[1]*uy,this.dv,this.v);
+  return Number.isFinite(dh+dv)?{dh,dv}:usual;
  }
 }
 export function eyeFrameFeature(measurements,width,height,agreement=null){

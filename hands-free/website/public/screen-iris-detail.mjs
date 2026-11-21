@@ -24,15 +24,28 @@ function sampler(gray,width,height){
   return (gray[i]*(1-fx)+gray[i+1]*fx)*(1-fy)+(gray[i+width]*(1-fx)+gray[i+width+1]*fx)*fy;
  };
 }
+const validLids=lids=>!!lids&&[lids.upper,lids.lower].every(line=>Array.isArray(line)&&line.length>=2&&line.every(p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y)));
 // How the eye is lit: used to tune the camera picture and to report glare.
 // `bright` is the level above which a pixel counts as a reflection rather than
 // part of the eye: clearly brighter than the white of the eye around the iris.
-export function eyeLight(gray,width,height,iris){
- const inside=[],around=[];let clipped=0,n=0;
+//
+// `lids` {upper,lower} are the two lid lines, when the eye model gives them. Only the open part
+// of the eye is then judged. Until 0.4.33 the whole iris circle was, and a lid lying over the
+// top of the iris (as it does when the eyes look down) counted as a reflection covering it
+// whenever the skin was lit more brightly than the white of the eye. With a lamp on the face
+// that refused about a third of the frames at the bottom of the screen, on a person without
+// glasses; opening the eyes wide made the "reflection" go away.
+export function eyeLight(gray,width,height,iris,lids=null){
+ const inside=[],around=[];let clipped=0,n=0,covered=0,circle=0;
+ const masked=validLids(lids),open=openEye(masked?lids:null,.1*iris.r);
  const x0=Math.max(0,Math.floor(iris.x-2.2*iris.r)),x1=Math.min(width-1,Math.ceil(iris.x+2.2*iris.r)),y0=Math.max(0,Math.floor(iris.y-1.3*iris.r)),y1=Math.min(height-1,Math.ceil(iris.y+1.3*iris.r));
  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){
-  const g=gray[y*width+x],d=Math.hypot(x-iris.x,y-iris.y);n++;if(g>=250)clipped++;
-  if(d<=.85*iris.r)inside.push(g);else if(d>=1.2*iris.r&&d<=2.1*iris.r&&Math.abs(y-iris.y)<=.5*iris.r)around.push(g);
+  const g=gray[y*width+x],d=Math.hypot(x-iris.x,y-iris.y),within=d<=.85*iris.r;
+  if(within)circle++;
+  // A lid, its lashes or the skin beyond: neither iris nor white of the eye.
+  if(!open(x,y)){if(within)covered++;continue;}
+  n++;if(g>=250)clipped++;
+  if(within)inside.push(g);else if(d>=1.2*iris.r&&d<=2.1*iris.r&&Math.abs(y-iris.y)<=.5*iris.r)around.push(g);
  }
  if(inside.length<12||around.length<8)return null;
  // The iris level is taken low in its range, so an iris that a reflection
@@ -41,7 +54,7 @@ export function eyeLight(gray,width,height,iris){
  inside.sort((a,b)=>a-b);
  const dark=inside[Math.floor(inside.length*.25)],white=median(around),bright=Math.max(white+.35*(255-white),white+18);
  let glare=0;for(const g of inside)if(g>=bright)glare++;
- return {dark,white,contrast:white-dark,bright,glare:glare/inside.length,clipped:clipped/n,mean:(inside.reduce((a,b)=>a+b,0)+around.reduce((a,b)=>a+b,0))/(inside.length+around.length)};
+ return {dark,white,contrast:white-dark,bright,glare:glare/inside.length,clipped:clipped/n,mean:(inside.reduce((a,b)=>a+b,0)+around.reduce((a,b)=>a+b,0))/(inside.length+around.length),...(masked?{covered:circle?covered/circle:0}:{})};
 }
 // Least-squares circle through weighted points (centre and radius).
 function fitCircle(points,weights,start,prior=null){
@@ -94,9 +107,9 @@ function openEye(lids,margin){
 // reflection) weighted out. Steps next to a reflection are never used.
 export function refineIris(gray,width,height,guess,{axis=0,up=null,down=null,rays=17,minimumStep=5,lids=null,radius=null}={}){
  if(!guess||!(guess.r>=3)||![guess.x,guess.y,axis].every(Number.isFinite))return null;
- const at=sampler(gray,width,height),light=eyeLight(gray,width,height,guess);
+ const valid=validLids(lids);
+ const at=sampler(gray,width,height),light=eyeLight(gray,width,height,guess,valid?lids:null);
  if(!light||light.contrast<8)return null;
- const valid=lids&&[lids.upper,lids.lower].every(line=>Array.isArray(line)&&line.length>=2&&line.every(p=>Number.isFinite(p?.x)&&Number.isFinite(p?.y)));
  // With lid lines the search may use a wide arc, because points on a lid are
  // excluded one by one. Without them it keeps to the sides of the iris.
  const bright=light.bright,arc={up:up??(valid?60:30),down:down??(valid?70:40)},open=openEye(valid?lids:null,.1*guess.r);
@@ -207,7 +220,7 @@ export function refineInFrame(frame,iris,read,options){
  const local={x:(iris.x-patch.x)*k-.5,y:(iris.y-patch.y)*k-.5,r:iris.r*k},line=points=>points.map(p=>({x:(p.x-patch.x)*k-.5,y:(p.y-patch.y)*k-.5}));
  const lids=options?.lids?{upper:line(options.lids.upper),lower:line(options.lids.lower)}:null;
  const fitted=refineIris(gray,patch.outWidth,patch.outHeight,local,{...options,lids,radius:Number.isFinite(options?.radius)?options.radius*k:null});
- const light=fitted?.light||eyeLight(gray,patch.outWidth,patch.outHeight,local);
+ const light=fitted?.light||eyeLight(gray,patch.outWidth,patch.outHeight,local,lids);
  if(!fitted)return {iris:null,light};
  return {iris:{x:patch.x+(fitted.x+.5)/k,y:patch.y+(fitted.y+.5)/k,r:fitted.r/k,rms:fitted.rms/k,points:fitted.points,skipped:fitted.skipped},light};
 }
@@ -248,7 +261,7 @@ export class IrisDetail{
 
 // A compact, rounded report of how one eye is lit, for the app and its reports.
 export function lightSummary(light){
- return light?{white:Math.round(light.white),dark:Math.round(light.dark),contrast:Math.round(light.contrast),glare:Math.round(light.glare*100)/100,clipped:Math.round(light.clipped*1000)/1000}:null;
+ return light?{white:Math.round(light.white),dark:Math.round(light.dark),contrast:Math.round(light.contrast),glare:Math.round(light.glare*100)/100,clipped:Math.round(light.clipped*1000)/1000,...(Number.isFinite(light.covered)?{covered:Math.round(light.covered*100)/100}:{})}:null;
 }
 // Share of the iris a reflection may cover before that eye is not trusted.
 export const GLARE_LIMIT=.2;

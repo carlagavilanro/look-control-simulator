@@ -1,4 +1,4 @@
-import {app,BrowserWindow,ipcMain,protocol,net,screen,desktopCapturer,globalShortcut,shell,session} from 'electron';
+import {app,BrowserWindow,ipcMain,protocol,net,screen,desktopCapturer,globalShortcut,shell,session,safeStorage} from 'electron';
 import {spawn} from 'node:child_process';
 import {createInterface} from 'node:readline';
 import fs from 'node:fs';
@@ -6,6 +6,9 @@ import path from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {checkCommand,siteUrl,InputGate,SWITCHES} from './input-policy.mjs';
 import {CalibrationStore,saveDiagnostics} from './calibration-store.mjs';
+import {createDeviceLink} from './device-link.mjs';
+// The website whose devices (fan, TV, ...) this app can use, once it has been linked there by code.
+const DEVICE_SITE='https://control.carla.codes';
 const root=path.dirname(fileURLToPath(import.meta.url));
 const assets=fs.existsSync(path.join(root,'public'))?path.join(root,'public'):path.resolve(root,'../website/public');
 const gate=new InputGate(),pending=new Map();let win,helper,id=0,closing=false,hiddenForInput=false,typingTop=null;
@@ -171,6 +174,13 @@ async function start(){
  });
  // These three fixed websites also work as ordinary mouse-operated shortcuts.
  // Desktop clicks, typing and capture still require armed, fresh gaze tracking.
+ // Devices set up on the website. The key the website gave this app is kept in the app's own
+ // folder, encrypted for this Windows account; without that protection it is not kept at all.
+ const keyFile=path.join(app.getPath('userData'),'device-link.bin');
+ const deviceLink=createDeviceLink({site:DEVICE_SITE,fetch:(url,options)=>net.fetch(url,options),store:{
+  read:async()=>safeStorage.isEncryptionAvailable()?safeStorage.decryptString(await fs.promises.readFile(keyFile)):null,
+  write:async value=>{if(value===null){await fs.promises.rm(keyFile,{force:true});return;}if(!safeStorage.isEncryptionAvailable())throw Error('This computer cannot protect the key.');await fs.promises.writeFile(keyFile,safeStorage.encryptString(value));}}});
+ ipcMain.handle('screen:devices',async(e,action,payload)=>{trusted(e);return deviceLink.call(String(action),payload);});
  ipcMain.handle('screen:site',async(e,site,query)=>{trusted(e);const url=siteUrl(site,query);accessibleWindow=null;if(dryRun)return {dryRun:true,url};await shell.openExternal(url);return true;});
  globalShortcut.register('CommandOrControl+Alt+P',()=>{if(gate.armed)pause();else win.webContents.send('screen:toggle');});
  globalShortcut.register('CommandOrControl+Alt+Q',()=>app.quit());

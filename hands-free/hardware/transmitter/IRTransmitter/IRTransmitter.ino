@@ -16,6 +16,9 @@ uint8_t requestSlot=0;
 uint32_t lastCommandAt=0,lastReconnectAt=0;
 bool hasCommand=false,wasConnected=false;
 
+#include "FanTest.h"
+#include "CloudTransmitter.h"
+
 void reply(int code,const String& message){JsonDocument doc;doc["message"]=message;String text;serializeJson(doc,text);server.sendHeader("Cache-Control","no-store");server.send(code,"application/json",text);}
 bool authorized(){
   if(String(CONTROL_TOKEN).startsWith("CHANGE_ME") || strlen(CONTROL_TOKEN)<24){reply(503,"Configure a control token of at least 24 characters.");return false;}
@@ -54,8 +57,12 @@ void setup(){
   server.on("/api/signals",HTTP_PUT,[]{if(!authorized())return;String error;const String body=server.arg("plain");if(body.length()>MAX_SIGNAL_FILE_BYTES){reply(413,"Maximum signal file size is 32768 bytes.");return;}if(!installSignals(body,error)){reply(400,error);return;}reply(200,"Signal file saved in transmitter flash. No IR command was sent.");});
   server.onNotFound([]{reply(404,"Not found.");});server.begin();
   Serial.println("Transmitter ready. Receiver board is not required.");
+  beginFanTest();
+  beginWebsite();
 }
 void loop(){
+  handleSerialFanTest();
+  handleWebsite();
   const bool connected=WiFi.status()==WL_CONNECTED;
   if(connected&&!wasConnected){Serial.print("Transmitter and signal-file upload: http://");Serial.println(WiFi.localIP());}
   if(!connected&&wasConnected)Serial.println("Wi-Fi disconnected; website commands unavailable.");

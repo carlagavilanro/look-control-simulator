@@ -8,6 +8,32 @@ on:
 permissions:
   contents: read
 jobs:
+  # Both board sketches are compiled for a real ESP32 (the standard 4 MB layout), so a sketch that
+  # does not build, or no longer fits, is caught here and not at the workbench.
+  firmware:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install the ESP32 boards and the two libraries
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+          arduino-cli lib install IRremoteESP8266 ArduinoJson
+          arduino-cli core list | sed 's/^/::notice title=Board package::/'
+          arduino-cli lib list | sed 's/^/::notice title=Library::/'
+      - name: Compile the transmitter sketch
+        run: |
+          set -o pipefail
+          arduino-cli compile --fqbn esp32:esp32:esp32 hands-free/hardware/transmitter/IRTransmitter 2>&1 | tee transmitter.log || { grep -iE "error|too big|No such file" transmitter.log | head -15 | sed 's/^/::error title=Transmitter sketch::/'; exit 1; }
+          grep -E "Sketch uses|Global variables" transmitter.log | sed 's/^/::notice title=Transmitter sketch::/'
+      - name: Compile the receiver sketch
+        if: always()
+        run: |
+          set -o pipefail
+          arduino-cli compile --fqbn esp32:esp32:esp32 hands-free/hardware/receiver/IRCapture 2>&1 | tee receiver.log || { grep -iE "error|too big|No such file" receiver.log | head -15 | sed 's/^/::error title=Receiver sketch::/'; exit 1; }
+          grep -E "Sketch uses|Global variables" receiver.log | sed 's/^/::notice title=Receiver sketch::/'
   build-and-test:
     runs-on: windows-latest
     timeout-minutes: 20

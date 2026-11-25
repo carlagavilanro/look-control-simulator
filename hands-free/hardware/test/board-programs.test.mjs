@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {gather,firmwareName,OFFSETS} from '../tools/board-programs.mjs';
 
-const hardware=new URL('..',import.meta.url).pathname;
+const hardware=fileURLToPath(new URL('..',import.meta.url));
 // Stand-ins for what arduino-cli leaves in a build folder: right first bytes, made-up contents.
 function build(folder,ino,{app=200000}={}){
  fs.mkdirSync(folder,{recursive:true});

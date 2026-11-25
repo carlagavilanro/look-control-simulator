@@ -13,6 +13,7 @@
 import {createHash} from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 
 export const OFFSETS={bootloader:0x1000,partitions:0x8000,boot_app0:0xe000,app:0x10000};
 const SKETCH={receiver:{ino:'IRCapture.ino',header:'receiver/IRCapture/CloudReceiver.h',name:'Receiver'},transmitter:{ino:'IRTransmitter.ino',header:'transmitter/IRTransmitter/CloudTransmitter.h',name:'Transmitter'}};
@@ -49,9 +50,9 @@ export function gather({out,version,commit,bootApp0,builds,hardware,now=new Date
  fs.writeFileSync(path.join(out,'board-programs.json'),JSON.stringify(manifest,null,1)+'\n');
  return manifest;
 }
-if(process.argv[1]&&path.resolve(process.argv[1])===new URL(import.meta.url).pathname){
+if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const [out,version,commit,bootApp0,...rest]=process.argv.slice(2);
  const builds=Object.fromEntries(rest.map(pair=>pair.split('=')));
- const manifest=gather({out,version,commit,bootApp0,builds,hardware:path.resolve(path.dirname(new URL(import.meta.url).pathname),'..')});
+ const manifest=gather({out,version,commit,bootApp0,builds,hardware:path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..')});
  for(const [board,info] of Object.entries(manifest.boards))console.log(board+': '+info.firmware+', program '+info.parts.find(p=>p.part==='app').size+' bytes');
 }

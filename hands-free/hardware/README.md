@@ -21,6 +21,8 @@ appliance <- infrared <- transmitter ESP32 (GPIO 4) <-Wi-Fi-+
 
 After that the board only needs power from any USB supply.
 
+A board can be given the other board's program at any time: on the page, "Which board is this?" stays open, and installing keeps the board's Wi-Fi and its link. The website goes by the program a board says it runs (every request carries its name), so a board that was linked as the transmitter and now runs the receiver's program is listed as the receiver from its next request on, with the same key. Step 4 of the page asks the website what it sees and says so, instead of taking the board's word that it is linked.
+
 How the Wi-Fi gets in: the board reads one line of JSON at 115200 baud, `{"hf":"hello"}`, `{"hf":"wifi","ssid":"...","password":"..."}` or `{"hf":"forget-wifi"}`, and answers with one line of JSON that never contains the password or the board's key. The Wi-Fi is kept in flash (NVS, namespace `hf-wifi`). `Config.h` still works as before for a board flashed from Arduino IDE, and Wi-Fi saved over USB wins over it. On the transmitter the single keys 1 to 7 still run the fan test; a whole line is never taken for one.
 
 Where the programs come from: the build workflow compiles both sketches exactly as they are here (no Wi-Fi in them), `tools/board-programs.mjs` gathers the four files each board needs with a list of sizes and checksums (`board-programs.json`), and they are attached to the release. The website fetches them from the latest release and hands them to the page from its own address (`/firmware/...`).
@@ -43,7 +45,7 @@ What each sketch gains, and what it keeps:
 
 Safety on the way: the website hands a command to the transmitter only within six seconds of the request. A command that is not collected in time is dropped and reported as not sent; it is never delivered late.
 
-How this was checked: both sketches are compiled for an ESP32 on every push (see the build workflow), and their logic, including Wi-Fi over USB, was run on a PC against the website's real code with stand-ins for Wi-Fi, flash and infrared (`pc-check/`). The Boards and Wi-Fi page was run in a browser with a stand-in for the USB port and the flasher. Neither replaces a test on the boards themselves: installing a program on a real board from the browser, and the new programs on a real ESP32, have not been tried yet.
+How this was checked: both sketches are compiled for an ESP32 on every push (see the build workflow), and their logic, including Wi-Fi over USB, was run on a PC against the website's real code with stand-ins for Wi-Fi, flash and infrared (`pc-check/`). The Boards and Wi-Fi page was run in a browser with a stand-in for the USB port and the flasher. On 25 November 2026 the receiver's program was installed on a real board from that page; the board took its Wi-Fi over USB, reached the website and sent what it recorded. (That first run is also how the kind mix-up above was found: the board still held the key it had been given as the transmitter.) The transmitter's program has not been installed on a real board from the page yet.
 
 **October 6 update: the receiver saves automatically when powered.** It does not need a computer, running script, Wi-Fi or the transmitter to record. See [Automatic capture](AUTO-CAPTURE.md) for downloading and naming stored captures. The live USB workflow below remains available.
 

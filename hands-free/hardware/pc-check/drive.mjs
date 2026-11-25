@@ -179,6 +179,32 @@ try{
  for(const line of v.lines){assert.doesNotThrow(()=>JSON.parse(line),line);assert.equal(line.includes(wifiPassword),false);}
  ok('the receiver takes Wi-Fi over USB the same way, links, and still prints nothing but JSON');
  await v.stop();
+
+ // ---------------- a linked board that gets the other board's program ----------------
+ // What happened with the first real board: it had been linked as the transmitter, then got the
+ // receiver's program from the Boards and Wi-Fi page. Installing keeps the board's storage, so it
+ // kept its Wi-Fi and its key. Here: the same storage folder, first under the transmitter's
+ // program, then under the receiver's.
+ console.log('The other program on a linked board');
+ const xState=fs.mkdtempSync(path.join(os.tmpdir(),'hf-both-'));fs.writeFileSync(path.join(xState,'ir-in.txt'),'');
+ let x=board('transmitter-unset',xState);await x.expect(/WEBSITE: No Wi-Fi yet\./);
+ mark=x.mark();x.type(JSON.stringify({hf:'wifi',ssid:wifiName,password:wifiPassword})+'\n');await said(x,mark);
+ const xDevice=await linkBoard(x,mark);
+ view=(await page('/api/hub')).body;assert.equal(view.devices.find(d=>d.id===xDevice.id).kind,'transmitter');
+ const receiversBefore=view.devices.filter(d=>d.kind==='receiver').length,recordingsBefore=view.recordings.length;
+ await x.stop();
+ x=board('receiver-unset',xState);await x.expect(/"type":"receiver_status"/);
+ mark=x.mark();x.type('{"hf":"hello"}\n');hello=await said(x,mark);
+ assert.equal(hello.kind,'receiver');assert.equal(hello.wifi.connected,true);assert.equal(hello.link.linked,true,'the key is still on the board');
+ const pressed=press([1,1,0,0,1,0,1,1,0,1,0,0],4);fs.appendFileSync(path.join(xState,'ir-in.txt'),pressed.join(' ')+'\n');
+ await x.expect(/Recording 1 sent to the website/,20000);
+ view=(await page('/api/hub')).body;const xNow=view.devices.find(d=>d.id===xDevice.id);
+ assert.equal(xNow.kind,'receiver');assert.match(xNow.name,/^Receiver( \d+)?$/);assert.equal(xNow.firmware,'IRCapture-cloud-2');assert.equal(xNow.online,true);
+ assert.equal(view.devices.filter(d=>d.kind==='receiver').length,receiversBefore+1);assert.equal(view.recordings.length,recordingsBefore+1);
+ assert.deepEqual(view.recordings[0].from,xNow.name);
+ assert.equal(x.lines.some(l=>/LINK CODE/.test(l)||/answered 403/.test(l)),false,'no new code was needed and nothing was refused');
+ ok('a board linked as the transmitter that gets the receiver\'s program is the receiver on the website, with the same link, and its recordings arrive');
+ await x.stop();
  console.log('\n'+passed+' checks passed');
 }catch(error){console.error('\nFAILED: '+error.message);process.exitCode=1;}
 finally{server.closeAllConnections();server.close();setTimeout(()=>process.exit(process.exitCode||0),200);}

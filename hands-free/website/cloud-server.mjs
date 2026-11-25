@@ -45,7 +45,8 @@ export function createCloudServer({username,password,secureCookies=true,download
   const route=req.method+' '+url.pathname;
   if(route==='POST /api/pair/start'){const body=await read(req,1024);return answer(res,hub.pairStart({kind:body.kind,name:body.name,firmware:body.firmware,from:peerOf(req)}));}
   if(route==='POST /api/pair/claim'){const body=await read(req,1024);return answer(res,hub.pairClaim(body.secret));}
-  const device=hub.authDevice(req.headers.authorization);
+  // The program a board says it runs goes with its key: its entry follows it (see hub.mjs, follow).
+  const device=hub.authDevice(req.headers.authorization,req.headers['x-firmware']??'');
   if(!device)return json(res,401,{message:'This board or app is not linked to the website (or was removed). Link it again.'});
   if(route==='GET /api/device/hello')return json(res,200,{kind:device.kind,name:device.name});
   if(route==='POST /api/device/recordings'){const age=Number(req.headers['x-capture-age-ms']);return answer(res,await hub.addRecording(device,await read(req,32768),req.headers['x-capture-age-ms']===undefined?null:age));}

@@ -232,6 +232,60 @@ async function site(t){
  async function linked(kind){const started=await (await device(null,'/api/pair/start','POST',{kind})).json();assert.equal((await page('/api/pair/approve','POST',{code:started.code})).status,200);return (await (await device(null,'/api/pair/claim','POST',{secret:started.secret})).json()).token;}
  return {base,cookie,page,device,linked};
 }
+// What happened on the first real boards: a board that had been linked as the transmitter got the
+// receiver's program from the Boards and Wi-Fi page. Installing keeps the board's key, so the board
+// said "linked", while the website still listed a transmitter, refused its recordings with 403 and
+// told the pages that no receiver was linked.
+test('a linked board that now runs the other program is that other board: its entry follows the program',async()=>{
+ const dataDir=folder();let hub=createHub({dataDir,seed,timing:quick});await hub.ready;
+ const board=await link(hub,'transmitter');
+ assert.equal(hub.view().transmitter.linked,true);assert.equal(hub.view().receiver.linked,false);
+ assert.equal((await hub.addRecording(board.device,capture(press([1,0,1,1,0,0,1,0,1,0,0,1])),20)).status,403,'as a transmitter its recordings are refused');
+ // The same key, now with the receiver's program.
+ const now=hub.authDevice('Bearer '+board.token,'IRCapture-cloud-2');
+ assert.equal(now.id,board.device.id);assert.equal(now.kind,'receiver');assert.equal(now.name,'Receiver');assert.equal(now.firmware,'IRCapture-cloud-2');
+ let view=hub.view();
+ assert.equal(view.receiver.linked,true);assert.equal(view.receiver.online,true);assert.equal(view.transmitter.linked,false);
+ assert.deepEqual(view.devices.map(d=>[d.kind,d.name]),[['receiver','Receiver']]);
+ assert.equal((await hub.addRecording(now,capture(press([1,0,1,1,0,0,1,0,1,0,0,1])),20)).status,200,'and its recordings are taken');
+ assert.equal((await hub.nextCommand(now,0)).status,403,'it no longer collects commands');
+ assert.equal((await hub.startLearning({applianceId:hub.view().appliances[0].id,label:'Swing'})).status,200,'a button can be recorded with it');
+ // It is kept: after a restart of the website the board is still the receiver.
+ await hub.addRecording(now,capture(press([0,0,1,1,0,0,1,0,1,0,0,1]),{capture_id:2}),20);
+ hub=createHub({dataDir,seed,timing:quick});await hub.ready;
+ const again=hub.authDevice('Bearer '+board.token,'IRCapture-cloud-2');assert.equal(again.kind,'receiver');
+ // Back to the transmitter's program: a transmitter again, without linking again.
+ assert.equal(hub.authDevice('Bearer '+board.token,'IRTransmitter-cloud-2').kind,'transmitter');
+ assert.deepEqual(hub.view().devices.map(d=>[d.kind,d.name,d.firmware]),[['transmitter','Transmitter','IRTransmitter-cloud-2']]);
+});
+test('following the program: a typed name stays, a taken name gets a number, and nothing else changes kind',async()=>{
+ const hub=createHub({seed,timing:quick});await hub.ready;
+ const first=await link(hub,'receiver'),second=await link(hub,'transmitter'),app=await link(hub,'app');
+ await hub.renameDevice(second.device.id,'Board by the window');
+ // A newer version of the same program: the entry notes it and stays what it is.
+ assert.equal(hub.authDevice('Bearer '+first.token,'IRCapture-cloud-3').kind,'receiver');
+ assert.equal(hub.view().devices.find(d=>d.id===first.device.id).firmware,'IRCapture-cloud-3');
+ // No program named, a program this website does not know, a name that only begins alike: nothing changes.
+ for(const name of [undefined,'','SomethingElse-1','IRCaptureX-1','IRTransmitters','<b>IRTransmitter</b>'])assert.equal(hub.authDevice('Bearer '+first.token,name).kind,'receiver',String(name));
+ // The Windows app's key never becomes a board's, whatever it says.
+ assert.equal(hub.authDevice('Bearer '+app.token,'IRCapture-cloud-2').kind,'app');
+ // The second board gets the receiver's program: "Receiver" is taken, and its typed name stays anyway.
+ const changed=hub.authDevice('Bearer '+second.token,'IRCapture-cloud-2');
+ assert.equal(changed.kind,'receiver');assert.equal(changed.name,'Board by the window');
+ // And a board with a name the website chose gets the next free one.
+ const third=await link(hub,'transmitter');
+ assert.equal(hub.authDevice('Bearer '+third.token,'IRCapture-cloud-2').name,'Receiver 2');
+ assert.deepEqual(hub.view().devices.map(d=>d.kind).sort(),['app','receiver','receiver','receiver']);
+});
+test('following the program: a transmitter that was waiting for a command is let go when it becomes the receiver',async()=>{
+ const hub=createHub({seed,timing:quick});await hub.ready;
+ const board=await link(hub,'transmitter');
+ const waiting=hub.nextCommand(board.device,200);
+ hub.authDevice('Bearer '+board.token,'IRCapture-cloud-2');
+ assert.equal((await waiting).status,204);
+ const sent=await hub.send({button_id:hub.view().appliances[0].buttons[0].id,...request()});
+ assert.notEqual(sent.status,200,'with no transmitter left nothing is sent');assert.match(sent.body.message,/transmitter/i);
+});
 test('over HTTP: boards link without signing in, and nothing else is open to them',async t=>{
  const {base,page,device,linked}=await site(t);
  assert.equal((await fetch(base+'/api/hub')).status,401);
@@ -248,6 +302,14 @@ test('over HTTP: boards link without signing in, and nothing else is open to the
  const view=await (await page('/api/hub')).json();
  assert.deepEqual(view.recordings[0].looksLike,['Fan · Speed up']);assert.equal(view.recordings[0].fresh,true);
  assert.equal(view.storage.persistent,false);assert.equal(view.devices.length,1);
+ // A board says which program it runs with every request. One linked as the transmitter that now
+ // runs the receiver's program is taken as the receiver, and its recordings are accepted.
+ const other=await linked('transmitter');
+ assert.equal((await device(other,'/api/device/recordings','POST',capture(seed.commands[3].raw_us,{capture_id:7}),{'X-Capture-Age-Ms':'25'})).status,403);
+ assert.equal((await device(other,'/api/device/recordings','POST',capture(seed.commands[3].raw_us,{capture_id:7}),{'X-Capture-Age-Ms':'25','X-Firmware':'IRCapture-cloud-2'})).status,200);
+ assert.deepEqual(await (await device(other,'/api/device/hello','GET',undefined,{'X-Firmware':'IRCapture-cloud-2'})).json(),{kind:'receiver',name:'Receiver 2'});
+ const after=await (await page('/api/hub')).json();
+ assert.deepEqual(after.devices.map(d=>[d.kind,d.name]),[['receiver','Receiver'],['receiver','Receiver 2']]);assert.equal(after.transmitter.linked,false);
 });
 test('over HTTP: a button pressed on the page is collected by the transmitter and confirmed',async t=>{
  const {base,cookie,page,device,linked}=await site(t);

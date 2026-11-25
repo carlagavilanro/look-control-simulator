@@ -11,7 +11,7 @@
 // recording made a moment ago it also says how long ago, so the website can tell a button
 // pressed just now ("Record a button") from older saved ones. When there is nothing to send it
 // says hello to the website every 20 seconds.
-#define FIRMWARE_NAME "IRCapture-cloud-2"
+#define FIRMWARE_NAME "IRCapture-cloud-3"
 #include "CloudLink.h"
 
 struct RecentCapture { uint32_t id; uint32_t at; };

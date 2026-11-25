@@ -1,5 +1,5 @@
 > **Complete Hands Free project:** [source, setup and build instructions](hands-free/README.md)
-> — Windows companion **0.4.43**, current eye tracking, website, ESP32 firmware,
+> — Windows companion **0.4.44**, current eye tracking, website, ESP32 firmware,
 > tests and bundled models. This repository's root folder keeps the original
 > portfolio simulator described below.
 

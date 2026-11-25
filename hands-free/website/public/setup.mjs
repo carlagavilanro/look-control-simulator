@@ -51,7 +51,7 @@ function renderBoards(){
  $('device-list').replaceChildren(...(state.devices.length?state.devices.map(d=>h('li',{},
   h('div',{class:'row-main'},h('div',{},d.name,h('small',{text:names[d.kind]+(d.firmware?' · '+d.firmware:'')+(d.kind==='app'?' · last used '+since(d.seenSecondsAgo):d.online?' · online':' · last heard '+since(d.seenSecondsAgo))}))),
   h('div',{class:'row-actions'},h('button',{type:'button',text:'Rename',onclick:()=>edit('Rename','Name',d.name,32,name=>act(()=>call('/api/devices/'+d.id,'PATCH',{name})))}),
-   removeButton('Remove',()=>act(()=>call('/api/devices/'+d.id,'DELETE')))))):[h('li',{class:'empty',text:'Nothing is linked yet. Power a board, open its Serial Monitor and type its code above.'})]));
+   removeButton('Remove',()=>act(()=>call('/api/devices/'+d.id,'DELETE')))))):[h('li',{class:'empty',text:'Nothing is linked yet. Choose "Set up a board by USB" above: that page puts the program and the Wi-Fi on a board and links it.'})]));
  const warn=$('storage-warning');warn.hidden=state.storage.persistent&&!state.storage.error;
  warn.textContent=state.storage.error?'The setup could not be saved to storage ('+state.storage.error+'). It is kept only until the website restarts.':'Storage is not attached to the website yet: devices, buttons and links are kept only until it restarts.';
 }

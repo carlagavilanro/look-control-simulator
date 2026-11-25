@@ -9,6 +9,7 @@ import {randomBytes} from 'node:crypto';
 const site=new URL('../../website',import.meta.url).pathname;
 const {createCloudServer}=await import(site+'/cloud-server.mjs');
 const {createHub}=await import(site+'/hub.mjs');
+const {heardSignal}=await import(site+'/public/board-usb.mjs');
 const seed=JSON.parse(fs.readFileSync(site+'/fan-signals.json','utf8'));
 const here=path.dirname(new URL(import.meta.url).pathname),port=18811,base='http://127.0.0.1:'+port;
 const credentials={username:'pc-check',password:'pc-check-password-of-32-characters'};
@@ -89,6 +90,9 @@ try{
  shine(first);await r.expect(/"capture_id":1/);shine(second);await r.expect(/"capture_id":2/);
  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(rState,'fs/captures/0000000001.json'),'utf8')).raw_us,first);
  ok('with no network it records and saves exactly as before');
+ // The Boards and Wi-Fi page reads that same line to show "heard a signal" for a plugged-in receiver.
+ assert.deepEqual(heardSignal(r.lines.find(l=>/"capture_id":2/.test(l))),{timings:second.length,repeat:false,overflow:false,saved:true,reason:''});
+ ok('the line it prints for each signal is the one the Boards page shows as heard');
  fs.rmSync(path.join(rState,'wifi-down'));
  const rDevice=await linkBoard(r);await r.expect(/Recording 2 sent to the website/,15000);
  view=(await page('/api/hub')).body;assert.equal(view.recordings.length,2);assert.equal(view.recordings[0].from,'Receiver');

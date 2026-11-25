@@ -32,7 +32,22 @@ async function fromRelease(name){
 }
 export function createCloudServer({username,password,secureCookies=true,downloadUrl=releaseDownload,dataDir=null,persistent=false,hub=createHub({dataDir,persistent,seed:fanSeed()}),boardPrograms=fromRelease,now=Date.now}){
  if(!username||username.length>100||!password||password.length<24)throw Error('Set SITE_USERNAME and a random SITE_PASSWORD of at least 24 characters before cloud startup.');
- const sessions=new Map(),attempts=new Map();
+ // Sign-ins. With storage attached they are kept across a restart of the website (every update
+ // restarts it, and each one used to sign everybody out). Only a hash of each session's cookie is
+ // written, beside the hub's file: the file alone lets nobody in. Without storage they live in
+ // memory only, as before.
+ const sessions=new Map(),attempts=new Map();   // sessions: hash of the cookie's value -> when it ends
+ const sessionFile=persistent&&dataDir?path.join(dataDir,'sessions.json'):null,hashed=token=>createHash('sha256').update(token).digest('hex');
+ if(sessionFile)try{
+  for(const [key,expires]of Object.entries(JSON.parse(readFileSync(sessionFile,'utf8'))))if(/^[a-f0-9]{64}$/.test(key)&&Number.isFinite(expires)&&expires>Date.now()&&sessions.size<1000)sessions.set(key,expires);
+ }catch{}
+ let keeping=Promise.resolve();
+ function keepSessions(){
+  if(!sessionFile)return keeping;
+  const text=JSON.stringify(Object.fromEntries(sessions));
+  keeping=keeping.then(async()=>{await fs.mkdir(dataDir,{recursive:true});const temporary=sessionFile+'.'+randomBytes(4).toString('hex')+'.tmp';await fs.writeFile(temporary,text,{mode:0o600});await fs.rename(temporary,sessionFile);}).catch(()=>{});
+  return keeping;
+ }
  const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data));};
  const redirect=(res,to)=>{res.writeHead(303,{Location:to});res.end();};
  const cookie=(value,age)=>`look_session=${value}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${age}${secureCookies?'; Secure':''}`;
@@ -112,7 +127,7 @@ export function createCloudServer({username,password,secureCookies=true,download
   if(!data||data.length!==part.size||createHash('md5').update(data).digest('hex')!==part.md5)return null;
   programs.files.set(name,data);return data;
  }
- function session(req){const token=/(?:^|;\s*)look_session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie||'')?.[1];return token&&sessions.get(token)>Date.now()?token:null;}
+ function session(req){const token=/(?:^|;\s*)look_session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie||'')?.[1];return token&&sessions.get(hashed(token))>Date.now()?token:null;}
  const server=http.createServer(async(req,res)=>{
   res.setHeader('Cache-Control','no-store');
   res.setHeader('X-Content-Type-Options','nosniff');
@@ -127,7 +142,7 @@ export function createCloudServer({username,password,secureCookies=true,download
    await hub.ready;
    if(url.pathname.startsWith('/api/device/')||url.pathname==='/api/pair/start'||url.pathname==='/api/pair/claim')return await deviceApi(req,res,url);
    const now=Date.now();
-   for(const [key,expires]of sessions)if(expires<=now)sessions.delete(key);
+   {let ended=false;for(const [key,expires]of sessions)if(expires<=now){sessions.delete(key);ended=true;}if(ended)keepSessions();}
    for(const [key,value]of attempts)if(value.until<=now)attempts.delete(key);
    if(url.pathname==='/login'&&req.method==='GET'){
     res.writeHead(200,{'Content-Type':mime['.html']});return res.end(login(false));
@@ -136,7 +151,8 @@ export function createCloudServer({username,password,secureCookies=true,download
     // Browser form submissions must come from this same HTTPS origin.
     if(!req.headers.origin||new URL(req.headers.origin).host!==req.headers.host||req.headers['sec-fetch-site']==='cross-site')return json(res,403,{message:'Please submit from this website.'});
     if(url.pathname==='/logout'){
-     sessions.delete(session(req));res.setHeader('Set-Cookie',cookie('',0));return redirect(res,'/login');
+     const current=session(req);if(current){sessions.delete(hashed(current));await keepSessions();}
+     res.setHeader('Set-Cookie',cookie('',0));return redirect(res,'/login');
     }
     const key=peerOf(req);
     const entry=attempts.get(key)||{count:0,until:now+15*60*1000};
@@ -148,7 +164,7 @@ export function createCloudServer({username,password,secureCookies=true,download
     const userOK=equal(data.get('username')||'',username),passOK=equal(data.get('password')||'',password);
     if(!userOK||!passOK){res.writeHead(401,{'Content-Type':mime['.html']});return res.end(login(true));}
     if(sessions.size>=1000)return json(res,503,{message:'Sign-in is busy. Please try again later.'});
-    const token=randomBytes(32).toString('hex');sessions.set(token,now+lifetime);attempts.delete(key);
+    const token=randomBytes(32).toString('hex');sessions.set(hashed(token),now+lifetime);attempts.delete(key);await keepSessions();
     res.setHeader('Set-Cookie',cookie(token,lifetime/1000));return redirect(res,'/');
    }
    // Only login styling/fonts and liveness are public; the app/model require a session.

@@ -6,14 +6,14 @@ import {WordSuggestions,insertText,completeWord} from './screen-typing.mjs';
 import {MAX_HEAD_POSITIONS,savedHeadPositions,HeadPositionSelector,resetDwellForPosition,estimateHeadPositions,nextHeadPosition,HeadCaptureGuide,HeadReturnGuide,calibrationReturnPlan,calibrationReturnFeedback} from './screen-positions.mjs';
 import {focusChoice,visibleFocusTargets,coveredFocusTargets,controlNames,readingOrder,CHOICES} from './screen-targets.mjs';
 import {CALIBRATION_KEY,readProfile,writeProfile,chooseCamera} from './screen-profile.mjs';
-import {KINDS,KIND_ICON,picture,buttonIcon,missingButtons,learnedWarning} from './screen-devices.mjs';
+import {KINDS,KIND_ICON,picture,buttonIcon,missingButtons,learnedWarning,HOLD,keepSending,heldMessage,pressAndHold} from './screen-devices.mjs';
 const $=id=>document.getElementById(id),desktop=window.desktopControl,pointer=new GazePointer(),fixation=new FixationGate(),intent=new TargetIntent(),dwell=new TargetDwell(600,{pauseMs:300,releaseMs:200});
 const KEY=CALIBRATION_KEY;
 // Where the profile's camera and options are kept (see screen-profile.mjs). A browser that
 // refuses storage gives none; nothing is saved then, and nothing fails.
 const kept=(()=>{try{return window.localStorage;}catch{return null;}})();
 let stream,worker,ready=false,inFlight=false,lastVideo=-1,lastFrame=0,lastSample=0,lastReceived=0,generation=0,sessionSetup=null;
-let model=null,validation=null,stage='welcome',capture=null,active=false,busy=false,blockedUntil=0,items=[],text='',uppercase=false;
+let model=null,validation=null,stage='welcome',capture=null,active=false,busy=false,blockedUntil=0,items=[],text='',uppercase=false,keepLooking=null;
 let rect={x:0,y:0,w:1,h:1},depth=0,snapshot=null,lastHeartbeat=0,layout={columns:3,rows:3,capacity:9},pauseTask=Promise.resolve(),uiRevision=0;
 let nativeProfiles=[],saveNotice='',resizeTimer=null;
 let resultReport='';
@@ -1326,6 +1326,7 @@ function sample(f,now,head=f){
  }
  const raw=prediction.point,view=pointer.update(prediction,now,{width:innerWidth,height:innerHeight}),p=view.point,steady=fixation.update(raw,now,layoutValidation());
  recordTracking(prediction,view,now);
+ if(keepLooking)watchLook(view.usable?p:null,raw,now);
  if(reading){
   $('gaze').hidden=true;desktop?.heartbeat(false);
   const button=$('wake-pointer'),bounds=button.getBoundingClientRect();
@@ -1377,6 +1378,17 @@ function sample(f,now,head=f){
   report('Pointer test · selections paused');
   if(fired!==null)toggleSelections();return;
  }
+ // A button that can be held was sent and the eyes have stayed on it: it goes on as a held button.
+ if(keepLooking){
+  const k=keepLooking;
+  if(k.on){
+   k.tile.classList.add('gaze-active');$('progress').value=Math.min(1,(now-k.started)/(k.from-k.started));
+   if(now>=k.from)run(()=>holdByLooking(k));
+   else report(`${k.a.name} · ${k.b.label} sent · keep holding to repeat · ${((k.from-now)/1000).toFixed(1)} s`);
+   return;
+  }
+  keepLooking=null;k.tile.classList.remove('gaze-active');
+ }
  if(now<blockedUntil)return;
  const targets=[...$('tiles').children,...composerButtons.map($),$('more-controls'),$('pointer-test'),$('pause'),$('cancel'),$('read-mode'),$('head-status')];
  const eligible=b=>inside(b,p)&&inside(b,raw);
@@ -1391,7 +1403,46 @@ function sample(f,now,head=f){
  const fired=selectionDwell(target<0?null:target,steady,view,now,near);$('progress').value=dwell.progress;
  targets.forEach((b,i)=>b.classList.toggle('gaze-active',i===intent.target));
  report(target>=0?`${action.label} · ${Math.max(0,(1-dwell.progress)*dwell.ms/1000).toFixed(1)} s`:dwell.progress>0?'Holding your selection…':'Look at a button');
- if(fired!==null){noteSelection(button,target<items.length,now);if(target<items.length)run(action.action);else button.click();}
+ if(fired!==null){noteSelection(button,target<items.length,now);if(target<items.length)run(action.look||action.action);else button.click();}
+}
+// ---- holding a device's button by looking at it ----------------------------------------------------
+// A button that can be held (volume, channel, an arrow) was sent by looking at it. If the eyes stay
+// on it for HOLD.look more, it goes on as a held button, one signal of under a second after the
+// other, until the eyes leave it. keepLooking (declared with the page's state, at the top):
+// {a,b,tile,on,off,lost,seen,started,from}.
+// Whether the eyes are still on the tile. A blink is forgiven (half a second with no estimate); a
+// quarter of a second on something else is letting go. p is null when there is no estimate.
+function watchLook(p,raw,now){
+ const k=keepLooking;
+ // Not judged for a while (the camera stopped, or the page was showing something else): let go.
+ if(!k.tile.isConnected||stage!=='device'||!active||selectionsPaused||reading||now-k.seen>600){k.on=false;return;}
+ k.seen=now;
+ if(!p){k.lost??=now;if(now-k.lost>=500)k.on=false;return;}
+ if(inside(k.tile,p)||inside(k.tile,raw)){k.off=null;k.lost=null;return;}
+ k.lost=null;k.off??=now;if(now-k.off>=250)k.on=false;
+}
+function lookToHold(a,b){
+ const index=items.findIndex(item=>item.holdId===b.id),tile=index<0?null:$('tiles').children[index];if(!tile)return;
+ const now=performance.now();keepLooking={a,b,tile,on:true,off:null,lost:null,seen:now,started:now,from:now+HOLD.look};
+}
+async function holdByLooking(k){
+ k.tile.classList.add('holding');report(k.a.name+' · '+k.b.label+': sending while you hold it. Look away to stop.');
+ // seen: the eyes are judged on every camera frame; without frames nothing says they are still there.
+ const done=await keepSending({send:()=>deviceHub('send',{button_id:k.b.id,hold:true}),still:()=>keepLooking===k&&k.on&&performance.now()-k.seen<600});
+ k.tile.classList.remove('holding','gaze-active');
+ // It ended with the eyes still on it (the time limit, or a failure): nothing more until they have left it.
+ const index=[...$('tiles').children].indexOf(k.tile);
+ if(keepLooking===k){keepLooking=null;if(done.reason!=='released'&&index>=0){dwell.locked=index;dwell.releaseAt=null;}}
+ blockedUntil=performance.now()+600;
+ // The eyes left before a held signal was asked for: the press that came first is what was sent.
+ if(done.bursts||done.reason!=='released')report(k.a.name+' · '+k.b.label+': '+heldMessage(done,'Look away, then hold it again to go on.'));
+}
+// The same with the mouse or a finger: held for as long as it is kept down.
+async function holdDevice(a,b,still,tile){
+ tile.classList.add('holding');report(a.name+' · '+b.label+': sending while it is held…');
+ const done=await keepSending({send:()=>deviceHub('send',{button_id:b.id,hold:true}),still});
+ tile.classList.remove('holding');blockedUntil=performance.now()+600;
+ report(a.name+' · '+b.label+': '+heldMessage(done));
 }
 // A button selected by looking at it says where the eyes were. See Recentre.
 function noteSelection(button,tile,now){
@@ -1481,7 +1532,7 @@ function recordTracking(prediction,view,now){
 }
 function trackingReport(){
  const stamp=JSON.stringify(model);let hash=2166136261;for(let i=0;i<stamp.length;i++)hash=Math.imul(hash^stamp.charCodeAt(i),16777619);
- return {version:'0.4.45',filter:{movementConfirmationMs:120,maximumInTargetPauseMs:300,medianWindowMs:150,selectionHoldMs:600,intentWindowMs:240},headEstimate,activePositionId:positionId,savedHeadPositions:headPositions.length,mapId:(hash>>>0).toString(16),camera:cameraStats,viewport:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},
+ return {version:'0.4.46',filter:{movementConfirmationMs:120,maximumInTargetPauseMs:300,medianWindowMs:150,selectionHoldMs:600,intentWindowMs:240},headEstimate,activePositionId:positionId,savedHeadPositions:headPositions.length,mapId:(hash>>>0).toString(16),camera:cameraStats,viewport:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},
   note:'Local session diagnostics. Movement between frames includes intentional eye movement; these are not target accuracy results. These are pointer stability measurements, not identified microsaccades or proof of gaze accuracy. No images, typed text, profile name, or raw eye features included.',
   runs:Object.fromEntries([...trackingRuns].map(([mode,rows])=>{
    const r=rows.filter(x=>performance.now()-x.at<=120000),rejected={};for(const x of r)if(!x.usable){const k=x.recovering?'recovering':x.reason;rejected[k]=(rejected[k]||0)+1;}
@@ -1636,7 +1687,7 @@ function compactMenuLayout(count){
  return {columns:g.columns,rows:g.rows,capacity:g.capacity};
 }
 function tiles(label,entries,grid=false,page=0,options={}){
- const locked=dwell.locked;intent.reset();dwell.reset();dwell.locked=locked;blockedUntil=performance.now()+200;
+ const locked=dwell.locked;intent.reset();dwell.reset();dwell.locked=locked;blockedUntil=performance.now()+200;keepLooking=null;
  if(!grid&&label!=='Viewing screen'&&$('composer').hidden)$('practice-scene').hidden=true;
  const groupedKeys=!$('composer').hidden&&['keyboard','letters','symbols'].includes(stage);
  const compactMenu=!grid&&!options.kind&&!groupedKeys;
@@ -1664,7 +1715,11 @@ function tiles(label,entries,grid=false,page=0,options={}){
    if(item.detail){const small=document.createElement('small');small.textContent=item.detail;words.append(small);}
    b.classList.add('pictured');b.append(svg,words);
   }else b.append(s);
-  b.onclick=()=>run(item.action);$('tiles').append(b);
+  // A tile that can be held (a device's volume, channel and arrow buttons): a short press sends it
+  // once, a press kept down keeps sending it until it is let go.
+  if(item.hold){let down=false;pressAndHold(b,{press:()=>run(item.action),start:()=>{down=true;run(()=>item.hold(()=>down,b));},stop:()=>{down=false;}});}
+  else b.onclick=()=>run(item.action);
+  $('tiles').append(b);
  }
  $('tiles').style.setProperty('--typing-rows',layout.rows);$('tiles').style.setProperty('--typing-key-height',(layout.rows*typing.row+Math.max(0,layout.rows-1)*6)+'px');
  if(!$('composer').hidden)requestAnimationFrame(syncTypingRegion);
@@ -1747,7 +1802,7 @@ async function siteCall(route,method='GET',body){
 }
 const requestId=()=>Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');
 const deviceHub=desktop?(desktop.devices?(action,payload)=>desktop.devices(action,payload).catch(()=>({ok:false,status:0,message:'The app could not ask the website.'})):null)
- :(action,p)=>action==='get'?siteCall('/api/hub'):action==='send'?siteCall('/api/send','POST',{button_id:p.button_id,request_id:requestId(),created_at:Date.now(),...(p.confirm?{confirm:true}:{})}):action==='add'?siteCall('/api/appliances','POST',p):action==='learn'?siteCall('/api/learn','POST',p):action==='stop'?siteCall('/api/learn','DELETE')
+ :(action,p)=>action==='get'?siteCall('/api/hub'):action==='send'?siteCall('/api/send','POST',{button_id:p.button_id,request_id:requestId(),created_at:Date.now(),...(p.confirm?{confirm:true}:{}),...(p.hold?{hold:true}:{})}):action==='add'?siteCall('/api/appliances','POST',p):action==='learn'?siteCall('/api/learn','POST',p):action==='stop'?siteCall('/api/learn','DELETE')
  :action==='rename-device'?siteCall('/api/appliances/'+encodeURIComponent(p.id),'PATCH',{name:p.name}):action==='careful'?siteCall('/api/appliances/'+encodeURIComponent(p.id),'PATCH',{careful:p.careful===true}):action==='remove-device'?siteCall('/api/appliances/'+encodeURIComponent(p.id),'DELETE')
  :action==='rename-button'?siteCall('/api/buttons/'+encodeURIComponent(p.id),'PATCH',{label:p.label,...(p.icon?{icon:p.icon}:{})}):action==='remove-button'?siteCall('/api/buttons/'+encodeURIComponent(p.id),'DELETE')
  :action==='ready'?siteCall('/api/appliances/'+encodeURIComponent(p.id)+'/ready','POST',{set:p.set}):Promise.resolve({ok:false,status:0,message:'Not available here.'});
@@ -1778,11 +1833,14 @@ async function devicesMenu(){
 async function deviceButtons(id,note=''){
  deviceScreen('device',()=>devicesMenu());const state=await loadDevices(()=>deviceButtons(id));if(!state)return;
  const a=state.appliances.find(x=>x.id===id);if(!a){await devicesMenu();return;}
- tiles(a.name,[...a.buttons.map(b=>pictured(b.label,()=>pressDevice(a,b),b.icon)),entry('Back',()=>devicesMenu())]);
- report(note||senderNote(state)||'Hold a button for 0.6 seconds to send it.');
+ // hold: the website says which buttons keep sending while they are held (volume, channel, arrows).
+ const held=b=>b.hold===true&&!a.careful;
+ tiles(a.name,[...a.buttons.map(b=>held(b)?{...pictured(b.label,()=>pressDevice(a,b),b.icon,'keep holding to repeat'),holdId:b.id,look:()=>pressDevice(a,b,false,null,true),hold:(still,tile)=>holdDevice(a,b,still,tile)}:pictured(b.label,()=>pressDevice(a,b),b.icon)),entry('Back',()=>devicesMenu())]);
+ report(note||senderNote(state)||'Hold a button for 0.6 seconds to send it.'+(a.buttons.some(held)?' Keep holding a volume, channel or arrow button and it keeps sending.':''));
 }
 // `after`: where to go when a send was started from somewhere other than the device's own buttons.
-async function pressDevice(a,b,confirmed=false,after=null){
+// `looked`: it was chosen by looking at it; a button that can be held then goes on while the eyes stay.
+async function pressDevice(a,b,confirmed=false,after=null,looked=false){
  // A device that asks first (a heater): "No" comes first, so a stray look does not send.
  if(a.careful&&!confirmed){const back=after?()=>after('Nothing was sent.'):()=>deviceButtons(a.id,'Nothing was sent.');deviceScreen('device-confirm',back);tiles('Send '+a.name+' · '+b.label+'?',[entry('No, go back',back),entry('Yes, send '+b.label,()=>pressDevice(a,b,true,after))]);report('Choose Yes to send '+b.label+', or No.');return;}
  report('Sending '+a.name+' · '+b.label+'…');
@@ -1791,6 +1849,7 @@ async function pressDevice(a,b,confirmed=false,after=null){
  if(after){await after(said);return;}
  if(confirmed||stage!=='device'){await deviceButtons(a.id,said);return;}
  blockedUntil=performance.now()+600;report(said);
+ if(looked&&result.ok&&b.hold===true&&!a.careful)lookToHold(a,b);
 }
 
 // ---- Set up a device ---------------------------------------------------------------------------
@@ -2200,7 +2259,7 @@ function shiftText(p){
 // window (shown when a check fails) and from the Paused and settings menus, so
 // that a session whose check passed can be saved too.
 async function saveDiagnosticsFile(){
- const text=JSON.stringify({format:'hands-free-diagnostics',formatVersion:1,app:'0.4.45',savedAt:new Date().toISOString(),screen:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},trackingMode:$('tracking-mode').value,setup:sessionSetup||null,camera:cameraStats||null,model:model||null,validation:validation||null,picture:stream?.getVideoTracks()[0]?pictureControls(stream.getVideoTracks()[0]):null,pictureLog,pictureProbe,lensChoice,lens:{inUse:lensControl(stream?.getVideoTracks()[0]).lens,byHand:handLens(),log:lensLog},faceEdges:edgeTally,reflections:reflections.bands,settings:{headMove:$('head-move').checked,lidInput:$('lid-input').checked,darkCalibration:$('dim-capture').checked,calibration:$('calibration-mode').value},recentre:{on:recentreOn(),shift:[Math.round(recentre.shift[0]*innerWidth),Math.round(recentre.shift[1]*innerHeight)],looking:recentre.looking.map(v=>Math.round(v*100)/100),log:recentreLog},light:lastLight,steps:diagnosticSteps,frameColumns:['time','step','point','status',...FRAME_FIELDS,...ALT_FIELDS.map(k=>'pixels_'+k),'eye_white_1','eye_white_2','eye_glare_1','eye_glare_2','eye_lid_1','eye_lid_2','eye_not_read'],frames:diagnosticFrames});
+ const text=JSON.stringify({format:'hands-free-diagnostics',formatVersion:1,app:'0.4.46',savedAt:new Date().toISOString(),screen:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},trackingMode:$('tracking-mode').value,setup:sessionSetup||null,camera:cameraStats||null,model:model||null,validation:validation||null,picture:stream?.getVideoTracks()[0]?pictureControls(stream.getVideoTracks()[0]):null,pictureLog,pictureProbe,lensChoice,lens:{inUse:lensControl(stream?.getVideoTracks()[0]).lens,byHand:handLens(),log:lensLog},faceEdges:edgeTally,reflections:reflections.bands,settings:{headMove:$('head-move').checked,lidInput:$('lid-input').checked,darkCalibration:$('dim-capture').checked,calibration:$('calibration-mode').value},recentre:{on:recentreOn(),shift:[Math.round(recentre.shift[0]*innerWidth),Math.round(recentre.shift[1]*innerHeight)],looking:recentre.looking.map(v=>Math.round(v*100)/100),log:recentreLog},light:lastLight,steps:diagnosticSteps,frameColumns:['time','step','point','status',...FRAME_FIELDS,...ALT_FIELDS.map(k=>'pixels_'+k),'eye_white_1','eye_white_2','eye_glare_1','eye_glare_2','eye_lid_1','eye_lid_2','eye_not_read'],frames:diagnosticFrames});
  try{
   if(desktop?.saveDiagnostics){const where=await desktop.saveDiagnostics(text);return {saved:true,file:String(where).split(/[\\/]/).pop(),message:`Diagnostics saved to ${where}. Numbers only: eye and head readings for each dot, the map and the check results. No images and no name.`};}
   const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([text],{type:'application/json'}));link.download='hands-free-diagnostics.json';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),10000);
@@ -2222,7 +2281,7 @@ $('diagnostics-bar').onclick=saveDiagnosticsNow;
 // The same as a tile in Keys & settings, for saving by gaze.
 function diagnosticsEntry(again){return entry(diagnosticsSaved?'Diagnostics saved':'Save diagnostics',async()=>{await saveDiagnosticsNow();again();});}
 $('copy-report').onclick=async()=>{
- const content=['Screen control 0.4.45',$('result-title').textContent,resultReport||$('result-copy').textContent,$('result-sides').textContent,...[...$('result-details').children].map(n=>n.textContent)].join('\n\n');
+ const content=['Screen control 0.4.46',$('result-title').textContent,resultReport||$('result-copy').textContent,$('result-sides').textContent,...[...$('result-details').children].map(n=>n.textContent)].join('\n\n');
  try{await navigator.clipboard.writeText(content);$('copy-report-status').textContent='Report copied. It contains results only, without images or raw eye samples.';}
  catch{$('copy-report-status').textContent='The browser could not copy the report. You can select and copy the results above.';}
 };

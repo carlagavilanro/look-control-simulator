@@ -84,6 +84,40 @@ export function sameSignal(a,b){
  return x.every((value,index)=>Math.abs(value-y[index])<=Math.max(160,.22*Math.max(value,y[index])));
 }
 
+// ---- a held button -------------------------------------------------------------------------------
+// A remote whose button is held down sends the key's burst and then keeps repeating for as long as
+// it is held: the same burst again (Samsung, Sony), or a short "still held" burst (NEC). The device
+// takes that as one long press: a TV keeps turning the volume up. The held version of a button is
+// built the same way from its recording: the first burst, then what the recording shows a held
+// remote repeats, at the recording's own pace, for as long as fits in `budget` microseconds.
+// The boards take at most one second per signal, so a held button is one signal of under a second:
+// nothing repeats on its own, and holding longer means asking again.
+//   - one burst recorded: that burst again, 108 ms from start to start (the usual pace);
+//   - the second burst is the first again: the first, at the pace recorded;
+//   - the second burst is a short "still held" burst, or the second and third are alike: that one;
+//   - anything else (a signal in two different parts): the whole recording again.
+// Returns the recording itself when nothing more fits.
+const duration=list=>list.reduce((total,value)=>total+value,0);
+const alike=(x,y)=>x.length===y.length&&x.every((value,index)=>near(value,y[index]));
+export function heldTimings(raw,budget=950000){
+ const first=firstBurst(raw);
+ if(raw.length%2===0||first.length<3)return raw;
+ let lead=raw,unit=raw,between=Math.max(40000,108000-duration(raw));
+ if(first.length<raw.length&&first.length%2===1){
+  const gap=raw[first.length],rest=raw.slice(first.length+1),second=firstBurst(rest),third=second.length<rest.length?firstBurst(rest.slice(second.length+1)):null;
+  if(alike(first,second)){lead=first;unit=first;between=gap;}
+  else if(second.length>=3&&second.length%2===1&&(second.length<=5||(third&&alike(second,third)))){lead=[...first,gap,...second];unit=second;between=Math.max(5000,duration(first)+gap-duration(second));}
+ }
+ const out=[...lead],step=between+duration(unit);
+ for(let total=duration(lead);total+step<=budget&&out.length+1+unit.length<=LIMITS.timings;total+=step)out.push(between,...unit);
+ return out.length>lead.length?out:raw;
+}
+// The buttons that keep sending while they are held: a step up or down, or an arrow. Not on a
+// device that asks before each send, and not on a fan or a heater, where a held button would run
+// through the speeds or the temperature. "Back" has the left arrow's picture and is not one.
+export const HOLD_ICONS=Object.freeze(['plus','minus','up','down','left','right']);
+export const holdable=(appliance,button)=>!!appliance&&!!button&&appliance.careful!==true&&!['fan','heater'].includes(appliance.kind)&&HOLD_ICONS.includes(button.icon)&&!/\b(back|return|exit)\b/i.test(button.label||'');
+
 // log: told in one line what became of each recording (what kind of signal, not whose): the
 // website's own log is then enough to see whether a receiver hears whole keys or scraps.
 // ---- ready-made buttons ----------------------------------------------------------------------------
@@ -389,18 +423,35 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
   if(!command||command.id!==commandId||command.deviceId!==device.id)return {status:404,body:{message:'No such command is waiting.'}};
   const about=command.about;
   if(ok===true&&practice===true)finish(command,{status:200,body:{sent:false,practice:true,message:'The transmitter is in practice mode: it received '+command.label+' and sent no infrared.'}});
-  else if(ok===true){if(about?.appliance)about.appliance.lastSent={label:about.label,at:now()};save();finish(command,{status:200,body:{sent:true,message:'Sent. The device\'s response is not confirmed.'}});}
+  else if(ok===true){
+   if(about?.appliance)about.appliance.lastSent={label:about.label,at:now()};save();
+   const seconds=(duration(command.raw)/1e6).toFixed(1);
+   finish(command,{status:200,body:command.held?{sent:true,held:true,milliseconds:Math.round(duration(command.raw)/1000),message:'Held for '+seconds+' seconds. The device\'s response is not confirmed.'}:{sent:true,message:'Sent. The device\'s response is not confirmed.'}});
+  }
+  // The board keeps its own 0.8 seconds between commands, counted from when it began the last one,
+  // a moment after the website passed it on. A command it finds too soon gets the website's own
+  // "wait" for an answer, and does not count as the last command: nothing was sent.
+  else if(/^Please wait before another command/.test(clean(message,80))){if(lastSent===command.at)lastSent=command.before;finish(command,{status:429,body:{sent:false,message:'Wait a moment before the next command. No command was sent.'}});}
   else finish(command,{status:502,body:{sent:false,message:'The transmitter could not send it'+(clean(message,80)?': '+clean(message,80):'.')+' Nothing was sent.'}});
   return {status:200,body:{ok:true}};
  }
- function send({button_id,recording_id,request_id,created_at,confirm}={}){
+ // hold: send the held version of a button (see heldTimings). One request is one signal of under a
+ // second; a page that holds a button down asks again when the answer comes, so the sending stops
+ // when the page stops asking.
+ function send({button_id,recording_id,request_id,created_at,confirm,hold}={}){
   expire();
   if(!/^[a-f0-9]{32}$/.test(request_id||'')||!Number.isFinite(created_at)||Math.abs(now()-created_at)>10000)return Promise.resolve({status:400,body:{message:'Malformed or expired request. No command was sent.'}});
-  let label,raw,carrier,name,about=null;
+  let label,raw,carrier,name,about=null,held=false;
+  if(hold===true&&typeof button_id!=='string')return Promise.resolve({status:400,body:{message:'Only a saved button can be held. No command was sent.'}});
   if(typeof button_id==='string'){
    const found=locate(button_id);if(!found)return Promise.resolve({status:404,body:{message:'That button no longer exists. No command was sent.'}});
    if(found.appliance.careful&&confirm!==true)return Promise.resolve({status:409,body:{confirm:true,message:'Confirm before sending '+found.appliance.name+' · '+found.button.label+'. No command was sent.'}});
    label=found.appliance.name+' · '+found.button.label;raw=found.button.raw_us;carrier=found.button.carrier_khz;name=found.button.id;about={appliance:found.appliance,label:found.button.label};
+   // A held button: the same key, as the remote sends it while it is held down.
+   if(hold===true){
+    if(!holdable(found.appliance,found.button))return Promise.resolve({status:400,body:{message:found.appliance.name+' · '+found.button.label+' is sent once for each press. No command was sent.'}});
+    raw=heldTimings(raw);held=raw!==found.button.raw_us;
+   }
   }else if(typeof recording_id==='string'){
    const recording=data.recordings.find(r=>r.id===recording_id);if(!recording)return Promise.resolve({status:404,body:{message:'That recording no longer exists. No command was sent.'}});
    label='Recording';raw=recording.raw_us;carrier=38;name=recording.id;
@@ -410,9 +461,9 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
   if(!online(device))return Promise.resolve({status:503,body:{message:'The transmitter board is offline. No command was sent.'}});
   if(seen.has(request_id))return Promise.resolve({status:409,body:{message:'Duplicate request rejected. No command was sent.'}});
   if(inFlight||now()-lastSent<t.gap)return Promise.resolve({status:429,body:{message:'Wait a moment before the next command. No command was sent.'}});
-  seen.set(request_id,now()+60000);lastSent=now();
+  const before=lastSent;seen.set(request_id,now()+60000);lastSent=now();
   return new Promise(resolve=>{
-   const command={id:randomBytes(8).toString('hex'),deviceId:device.id,label,name,raw,carrier,about,resolve,done:false,taken:false,timer:null};
+   const command={id:randomBytes(8).toString('hex'),deviceId:device.id,label:held?label+' (held)':label,name,raw,carrier,about,held,at:lastSent,before,resolve,done:false,taken:false,timer:null};
    inFlight=command;
    const s=state(device);
    if(s.waiter)s.waiter.finish(command);
@@ -436,7 +487,8 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
   const sender=transmitter(),senderView=sender?devices.find(d=>d.id===sender.id):null;
   const appliances=data.appliances.map(a=>({id:a.id,name:a.name,kind:a.kind,careful:a.careful===true,lastSent:a.lastSent?{label:a.lastSent.label,secondsAgo:ago(a.lastSent.at)}:null,
    // doubt: this button looks like only part of a signal beside the device's other buttons.
-   buttons:a.buttons.map(b=>({id:b.id,label:b.label,icon:b.icon,...(doubted(a).has(b.id)?{doubt:true}:{}),...(full?{carrier_khz:b.carrier_khz,origin:b.origin||'',...describe(b.raw_us)}:{})}))}));
+   // hold: this button keeps sending while it is held (see holdable).
+   buttons:a.buttons.map(b=>({id:b.id,label:b.label,icon:b.icon,...(doubted(a).has(b.id)?{doubt:true}:{}),...(holdable(a,b)?{hold:true}:{}),...(full?{carrier_khz:b.carrier_khz,origin:b.origin||'',...describe(b.raw_us)}:{})}))}));
   const receiver=data.devices.find(d=>d.kind==='receiver'&&online(d))||data.devices.find(d=>d.kind==='receiver');
   const base={transmitter:senderView?{linked:true,online:senderView.online,practice:senderView.practice===true,name:senderView.name}:{linked:false,online:false,practice:false,name:''},
    receiver:{linked:!!receiver,online:!!receiver&&online(receiver)},appliances,

@@ -1,6 +1,7 @@
 import {ProfileStore} from './vendor/profile-store.mjs';
 import {EyeSelector,DwellSelector} from './eye-selection.mjs';
 import {screenSummary,chooseCamera} from './screen-profile.mjs';
+import {keepSending,heldMessage,pressAndHold} from './screen-devices.mjs';
 const $=id=>document.getElementById(id),selector=new EyeSelector(),dwell=new DwellSelector(600,{pauseMs:300});
 const fanItems=[['captured_power','Power toggle'],['captured_level_down','Speed down'],['captured_level_up','Speed up'],['captured_mode','Change mode'],['captured_silence','Silence'],['captured_turn','Turn'],['captured_timer','Timer'],['pause','Pause eye controls'],['switch-device','Switch to TV']];
 let token='',connected=false,index=0,sending=false,paused=false,stream,worker,ready=false,inFlight=false,lastFrame=0,lastFeature=0,lastVideoTime=-1,frameLoop=0,calibrating=null,calStart=0,cameraGeneration=0,setupStep='welcome';
@@ -14,9 +15,12 @@ let iconNames=['power','minus','plus','mode','silence','turn','timer','pause','t
 // embedded: this page is shown inside Screen control, to be used with its eye pointer. Its own
 // camera, profiles and look-left-or-right controls are then left out.
 const cloud=globalThis.handsFreeCloud===true,embedded=cloud&&window.top!==window.self,kindIcon={fan:'fan',tv:'tv',heater:'heat',light:'light',other:'dot'};
-let appliances=[],confirming=null,hubSignature='';
+// holdIds: the buttons of the device in view that keep sending while they are held down (the
+// website marks volume, channel and arrow buttons `hold`). holding: the one being held now.
+let appliances=[],confirming=null,hubSignature='',holdIds=new Set(),holding=null;
 function cloudItems(){
  const device=appliances.find(a=>a.id===activeDevice)||appliances[0];
+ holdIds=new Set(!device||device.careful?[]:device.buttons.filter(b=>b.hold===true).map(b=>b.id));
  if(!device){items=[['pause','Pause eye controls']];iconNames=['pause'];return;}
  activeDevice=device.id;
  // An appliance that asks first (a heater) shows two choices, with "No" in focus.
@@ -42,7 +46,7 @@ async function refreshHub(){
  if(!cloud)return;
  try{
   const state=await api('/api/hub'),sender=state.transmitter;
-  const signature=JSON.stringify(state.appliances.map(a=>[a.id,a.name,a.kind,a.careful,a.buttons.map(b=>[b.id,b.label,b.icon])]));
+  const signature=JSON.stringify(state.appliances.map(a=>[a.id,a.name,a.kind,a.careful,a.buttons.map(b=>[b.id,b.label,b.icon,b.hold===true])]));
   appliances=state.appliances;connected=sender.linked;document.body.dataset.connected=String(sender.online);
   $('mode').textContent=!sender.linked?'No transmitter board is linked yet. Open Setup to link it.':!sender.online?'Transmitter offline · nothing is sent until it reconnects':sender.practice?'Transmitter online · practice mode: no infrared is sent':'Transmitter online';
   if(signature!==hubSignature&&!sending){hubSignature=signature;confirming=null;cloudItems();index=Math.min(index,items.length-1);cancel();}
@@ -133,7 +137,12 @@ function trackingUnavailable(now){
  $('tracking').textContent='Eye tracking paused.';
 }
 function paint(){
- $('controls').replaceChildren();items.forEach(([id,label],i)=>{const b=document.createElement('button');b.innerHTML='<span class="control-icon">'+icon(iconNames[i])+'</span><span class="focus-label">In focus</span><span class="control-label">'+label+'</span>';b.setAttribute('aria-label',label);b.className=i===index?'selected':'';b.disabled=!connected||sending||!available(id);if(!available(id))b.setAttribute('aria-label',label+' — capture required');b.onclick=()=>{index=i;activate();};$('controls').append(b);});
+ $('controls').replaceChildren();items.forEach(([id,label],i)=>{const b=document.createElement('button');b.innerHTML='<span class="control-icon">'+icon(iconNames[i])+'</span><span class="focus-label">In focus</span><span class="control-label">'+label+'</span>';b.setAttribute('aria-label',label);b.className=i===index?'selected':'';b.disabled=!connected||(sending&&holding!==id)||!available(id);if(!available(id))b.setAttribute('aria-label',label+' — capture required');
+  // A button that can be held: a short press sends it once, a press kept down keeps sending it.
+  const press=()=>{index=i;activate();};
+  if(cloud&&!confirming&&holdIds.has(id)){let down=false;b.title='Hold down to keep sending';if(holding===id)b.classList.add('holding');pressAndHold(b,{press,start:()=>{down=true;holdSend(i,()=>down,b);},stop:()=>{down=false;}});}
+  else b.onclick=press;
+  $('controls').append(b);});
  $('pause').textContent=paused?'Resume eye controls':'Pause eye controls';showHold();
 }
 function cancel(){selector.reset();dwell.clear();paint();}
@@ -144,8 +153,22 @@ function activate(){if(!connected||sending||modalOpen()||!available(items[index]
  if(cloud&&appliances.find(a=>a.id===activeDevice)?.careful){confirming=items[index];cloudItems();index=1;cancel();$('result').textContent='Send '+confirming[1]+'? Choose Yes or No.';return;}
  send(items[index]);}
 function id(){const a=new Uint8Array(16);crypto.getRandomValues(a);return [...a].map(n=>n.toString(16).padStart(2,'0')).join('');}
-async function api(route,body){const r=await fetch(route,{method:body?'POST':'GET',headers:{...(cloud?{}:{Authorization:'Bearer '+token}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(cloud?20000:7000)});const data=await r.json();if(!r.ok)throw Error(data.message||'Controller unavailable');return data;}
-async function send(action,confirmed=false){if(!connected||sending||modalOpen()||!available(action[0]))return;sending=true;resetHold();$('result').textContent='Sending '+action[1]+'…';paint();try{const result=cloud?await api('/api/send',{button_id:action[0],request_id:id(),created_at:Date.now(),...(confirmed?{confirm:true}:{})}):await api('/api/command',{command:action[0],request_id:id(),created_at:Date.now()});$('result').textContent=action[1]+': '+result.message;}catch(e){$('result').textContent=e.name==='TimeoutError'?'No answer from the website. Check the appliance before trying again.':e.message+(cloud?'':' No automatic retry.');}finally{sending=false;cancel();if(cloud)refreshHub();}}
+async function api(route,body){const r=await fetch(route,{method:body?'POST':'GET',headers:{...(cloud?{}:{Authorization:'Bearer '+token}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(cloud?20000:7000)});const data=await r.json();if(!r.ok){const problem=Error(data.message||'Controller unavailable');problem.status=r.status;throw problem;}return data;}
+async function send(action,confirmed=false){if(!connected||sending||modalOpen()||!available(action[0]))return;sending=true;resetHold();$('result').textContent='Sending '+action[1]+'…';paint();try{const result=cloud?await api('/api/send',{button_id:action[0],request_id:id(),created_at:Date.now(),...(confirmed?{confirm:true}:{})}):await api('/api/command',{command:action[0],request_id:id(),created_at:Date.now()});$('result').textContent=action[1]+': '+result.message+(cloud&&!confirmed&&result.sent&&holdIds.has(action[0])?' Hold the button down to keep sending.':'');}catch(e){$('result').textContent=e.name==='TimeoutError'?'No answer from the website. Check the appliance before trying again.':e.message+(cloud?'':' No automatic retry.');}finally{sending=false;cancel();if(cloud)refreshHub();}}
+// A button kept down with the mouse or a finger: it keeps sending, as a held remote does, until it
+// is let go. One request is one signal of under a second, so it stops when the page stops asking.
+async function holdSend(i,still,button){
+ const action=items[i];
+ if(!connected||sending||modalOpen()||!action||!holdIds.has(action[0]))return;
+ sending=true;holding=action[0];index=i;resetHold();button.classList.add('holding');$('result').textContent=action[1]+': sending while it is held…';
+ try{
+  const done=await keepSending({still,send:async()=>{
+   try{return {...await api('/api/send',{button_id:action[0],hold:true,request_id:id(),created_at:Date.now()}),ok:true,status:200};}
+   catch(e){return {ok:false,status:e.status||0,message:e.name==='TimeoutError'?'No answer from the website. Check the appliance before trying again.':e.message};}
+  }});
+  $('result').textContent=action[1]+': '+heldMessage(done);
+ }finally{sending=false;holding=null;cancel();refreshHub();}
+}
 function gesture(direction){
  if(sending||calibrating||!connected||modalOpen())return;
  if(paused){dwell.arm('resume');showHold();return;}

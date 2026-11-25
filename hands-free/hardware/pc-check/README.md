@@ -11,7 +11,7 @@ What is real: the sketch files as they are flashed, ArduinoJson, and the Arduino
 ./build.sh receiver 18811
 ./build.sh transmitter 18811 unset   # Config.h left as it is in the repository: no Wi-Fi
 ./build.sh receiver 18811 unset
-node drive.mjs                  # 28 checks, about three minutes
+node drive.mjs                  # 29 checks, about three minutes
 ```
 
 `drive.mjs` starts the website on port 18811, runs the boards and checks the whole path: link by code, key kept in flash and never printed, a button pressed on the site sent with exactly the recorded timings, the USB fan test and the 0.8 second gap, restart, Wi-Fi loss, practice mode, saving with no network, sending saved recordings, "Record a button", JSON-only output for the PC tools, erase and renumbering, removal and re-linking. Then Wi-Fi over USB on boards built with none: what `hello` answers, names and passwords that are refused, joining at once, the password never printed, digits in a request never sending a fan command, the saved Wi-Fi used after a restart, and `forget-wifi`. Last, one board's storage first under the transmitter's program and then under the receiver's: the website lists it as the receiver with the same key, and its recordings arrive.

@@ -1,4 +1,48 @@
-CURRENT VERSION 0.4.45 - READY-MADE SAMSUNG TV BUTTONS; RECORDING WAITS FOR A WHOLE SIGNAL
+CURRENT VERSION 0.4.46 - HOLD A BUTTON TO KEEP SENDING (VOLUME, CHANNEL, ARROWS)
+HOLD A BUTTON TO KEEP SENDING
+A device's volume, channel and arrow buttons now keep sending while
+they are held, as a remote does when its button is held down. The TV
+takes it as one long press and keeps turning the volume up.
+  - By eye: look at Volume up for 0.6 seconds and it is sent once, as
+    before. Keep looking: after 1.2 seconds more it goes on sending,
+    and the button turns orange. Look away to stop.
+  - With the mouse or a finger: press and keep pressing. Let go to
+    stop. A short press is still one press.
+  - The buttons that can be held say "keep holding to repeat" under
+    their name. They are the ones with a plus, a minus or an arrow for
+    a picture. "Back" is not one of them.
+  - One hold ends by itself after 12 seconds. Look away and back (or
+    press again) to go on.
+  - Nothing is held on a fan or a heater, where a held button would
+    run through the speeds or the temperature, nor on a device that
+    asks Yes or No before each command.
+  - For one step only, look away within a second of the button being
+    sent.
+The website's own pages do the same: its buttons, and "Send" on the
+Setup page, can be pressed and held.
+
+HOW IT WORKS, AND THE WAIT BETWEEN COMMANDS
+The wait between two commands is 0.8 seconds, not more. It is there so
+that a command is never sent twice by accident, and the website and
+the transmitter board each keep it. A press inside that time was
+answered "Wait a moment" and sent nothing, which is why pressing fast
+did not turn the volume up fast.
+A held button does not wait between steps. The website sends it as one
+signal of 0.9 seconds: the button's code again and again, at the pace
+the remote itself uses. When the board has sent it, the page asks for
+the next one, for as long as the button is held. Nothing repeats on
+its own: when the page stops asking, the sending stops within that
+second.
+No new program is needed on the boards.
+
+TESTED: with the transmitter's program running on a PC against the
+website's own code (a held button arrives as one signal of 0.9 s, the
+next is taken as soon as it is over); on the pages in a browser with a
+real mouse; and by eye with a stand-in for the camera, on the real
+selection code. NOT TESTED on a real TV: how fast the volume moves
+while the button is held is up to the TV.
+
+PREVIOUS VERSION 0.4.45 - READY-MADE SAMSUNG TV BUTTONS; RECORDING WAITS FOR A WHOLE SIGNAL
 READY-MADE BUTTONS FOR A SAMSUNG TV
 Samsung's smart remote sends infrared for its power key only. All its
 other keys go to the TV by Bluetooth, which the receiver cannot hear,

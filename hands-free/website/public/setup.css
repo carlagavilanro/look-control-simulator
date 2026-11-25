@@ -45,3 +45,7 @@
 #edit-dialog h2{margin:0 0 16px;font-size:22px}
 @media(max-width:600px){.setup-block{padding:18px}.row-actions input{width:100%}.top-actions .secondary-button{display:none}}
 .board-setup{margin:0 0 18px}.board-setup a{display:inline-flex;font-size:14px;padding:12px 18px}
+/* A button that keeps sending while its Send is held down. */
+.row-main small.holds{color:var(--muted)}
+.row-actions button.holding{background:#9a4300;border-color:#9a4300;color:#fff}
+.can-hold{touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}

@@ -1,6 +1,6 @@
 // Set up a device: add a device, add a button, record it with the receiver board, name it.
 // Also: link the boards and the Windows app, and look after the list of recordings.
-import {SUGGESTIONS,buttonIcon,learnedWarning} from './screen-devices.mjs';
+import {SUGGESTIONS,buttonIcon,learnedWarning,keepSending,heldMessage,pressAndHold} from './screen-devices.mjs';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 // Shown inside Screen control (to be used with the eye pointer): the side bar and sign-out are left out.
 if(window.top!==window.self)document.documentElement.classList.add('embedded');
@@ -42,6 +42,21 @@ function edit(title,label,value,max,save){editing=save;$('edit-title').textConte
 $('edit-cancel').onclick=()=>$('edit-dialog').close();
 $('edit-form').onsubmit=event=>{event.preventDefault();const value=$('edit-value').value.trim(),save=editing;$('edit-dialog').close();if(save&&value)save(value);};
 const send=(target,label,confirm=false)=>act(()=>call('/api/send','POST',{...target,request_id:requestId(),created_at:Date.now(),...(confirm?{confirm:true}:{})}),result=>label+': '+result.message);
+// The Send button of a device's button. One that can be held (the website marks volume, channel
+// and arrow buttons `hold`): a press sends it once, a press kept down keeps sending it, as a held
+// remote does, until it is let go.
+function sendButton(a,b){
+ const button=h('button',{type:'button',text:'Send'}),label=a.name+' · '+b.label,once=()=>send({button_id:b.id},label,a.careful);
+ if(!b.hold){button.onclick=once;return button;}
+ let down=false;button.title='Hold down to keep sending';
+ pressAndHold(button,{press:once,start:()=>{down=true;holdSend(b,label,()=>down,button);},stop:()=>{down=false;}});
+ return button;
+}
+async function holdSend(b,label,still,button){
+ if(busy)return;busy=true;document.body.classList.add('working');button.classList.add('holding');notice(label+': sending while it is held…');
+ try{const done=await keepSending({send:()=>call('/api/send','POST',{button_id:b.id,hold:true,request_id:requestId(),created_at:Date.now()}),still});notice(label+': '+heldMessage(done),done.reason==='failed');}
+ finally{busy=false;document.body.classList.remove('working');button.classList.remove('holding');await refresh(true);}
+}
 
 function renderBoards(){
  const chip=(title,device,missing)=>h('div',{class:'status-chip','data-state':!device?'none':device.online?'online':'offline'},h('span',{class:'lamp'}),h('div',{},title,h('small',{text:!device?missing:device.online?(device.practice?'Online · practice mode: no infrared is sent':'Online'):'Offline · last heard '+since(device.seenSecondsAgo)})));
@@ -81,8 +96,8 @@ function renderAppliances(){
     removeButton('Remove device',()=>act(()=>call('/api/appliances/'+a.id,'DELETE'))))),
   h('label',{class:'check'},(()=>{const box=h('input',{type:'checkbox'});box.checked=a.careful;box.onchange=()=>act(()=>call('/api/appliances/'+a.id,'PATCH',{careful:box.checked}),()=>box.checked?a.name+' now asks "Yes or No" before every command.':a.name+' now sends without asking.');return box;})(),'Ask "Yes or No" before every command'+(a.kind==='heater'?' (recommended for a heater)':'')),
   h('ul',{class:'rows'},a.buttons.length?a.buttons.map(b=>h('li',{},
-   h('div',{class:'row-main'},picture(b.icon),h('div',{},b.label,h('small',{text:[b.origin,b.timings+' timings',b.carrier_khz+' kHz'].filter(Boolean).join(' · ')}),b.doubt?h('small',{class:'doubt',text:'This looks like only part of the signal. If the device does not react to it, record it again.'}):null)),
-   h('div',{class:'row-actions'},h('button',{type:'button',text:'Send',onclick:()=>send({button_id:b.id},a.name+' · '+b.label,a.careful)}),
+   h('div',{class:'row-main'},picture(b.icon),h('div',{},b.label,h('small',{text:[b.origin,b.timings+' timings',b.carrier_khz+' kHz'].filter(Boolean).join(' · ')}),b.doubt?h('small',{class:'doubt',text:'This looks like only part of the signal. If the device does not react to it, record it again.'}):null,b.hold?h('small',{class:'holds',text:'Hold Send down to keep sending.'}):null)),
+   h('div',{class:'row-actions'},sendButton(a,b),
     h('button',{type:'button',text:'Rename',onclick:()=>edit('Rename the button','Name',b.label,24,label=>act(()=>call('/api/buttons/'+b.id,'PATCH',{label,icon:b.icon==='dot'?iconFor(label,a.kind):b.icon})))}),
     h('button',{type:'button',text:'Record again',onclick:()=>act(()=>call('/api/learn','POST',{applianceId:a.id,label:b.label,icon:b.icon,replace:b.id}))}),
     removeButton('Remove',()=>act(()=>call('/api/buttons/'+b.id,'DELETE')))))):h('li',{class:'empty',text:'No buttons yet. Add the first one below.'})),
@@ -105,7 +120,7 @@ async function refresh(force=false){
  state=fresh;
  const seconds=$('learn-seconds');if(seconds&&state.learning)seconds.textContent=state.learning.secondsLeft+' seconds left';
  // Redraw only when something changed, and never under someone's typing.
- const now=JSON.stringify([state.devices.map(d=>[d.id,d.name,d.online,d.practice,Math.floor((d.seenSecondsAgo??0)/60)]),state.appliances.map(a=>[a.id,a.name,a.careful,a.buttons.map(b=>[b.id,b.label,b.icon,b.timings,b.carrier_khz])]),state.recordings.map(r=>r.id),state.learning?.applianceId,state.learning?.label,state.learning?.partial,state.learned?.at,state.storage]);
+ const now=JSON.stringify([state.devices.map(d=>[d.id,d.name,d.online,d.practice,Math.floor((d.seenSecondsAgo??0)/60)]),state.appliances.map(a=>[a.id,a.name,a.careful,a.buttons.map(b=>[b.id,b.label,b.icon,b.timings,b.carrier_khz,b.hold===true])]),state.recordings.map(r=>r.id),state.learning?.applianceId,state.learning?.label,state.learning?.partial,state.learned?.at,state.storage]);
  const typing=document.activeElement?.matches?.('#appliance-list input,#recording-list input,#recording-list select');
  if(now===signature||!force&&typing)return;
  signature=now;renderBoards();renderAppliances();renderRecordings();

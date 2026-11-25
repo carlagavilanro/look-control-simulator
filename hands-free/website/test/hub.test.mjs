@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {randomBytes} from 'node:crypto';
-import {createHub,validTimings,firstBurst,sameSignal,cutShort,samsungTimings,READY,ICONS,iconFor,LIMITS} from '../hub.mjs';
+import {createHub,validTimings,firstBurst,sameSignal,cutShort,samsungTimings,heldTimings,holdable,READY,ICONS,iconFor,LIMITS} from '../hub.mjs';
 import {createCloudServer} from '../cloud-server.mjs';
 
 const seed=JSON.parse(fs.readFileSync(new URL('../fan-signals.json',import.meta.url),'utf8'));
@@ -499,4 +499,108 @@ test('over HTTP: the Windows app may use the devices and set one up; the pages m
  assert.equal((await page('/api/devices/'+appDevice.id,'DELETE')).status,200);
  assert.equal((await device(app,'/api/hub')).status,401,'a removed app is refused');
  view=await (await page('/api/hub')).json();assert.deepEqual(view.devices.map(d=>d.kind).sort(),['receiver','transmitter']);
+});
+
+// ---- a held button -----------------------------------------------------------------------------------
+const total=list=>list.reduce((a,b)=>a+b,0);
+// The bursts of a signal and the gaps between them.
+function bursts(raw){const out=[],gaps=[];let rest=raw;for(;;){const burst=firstBurst(rest);out.push(burst);if(burst.length===rest.length)break;gaps.push(rest[burst.length]);rest=rest.slice(burst.length+1);}return {bursts:out,gaps};}
+test('a held button is its key repeated as a held remote repeats it, for under a second',()=>{
+ // Samsung, as the remotes and the ready-made buttons send it: the frame again, 108 ms from start to start.
+ const tap=samsungTimings(0xE0E0E01F),held=heldTimings(tap),parts=bursts(held);
+ assert.ok(validTimings(held));assert.equal(parts.bursts.length,9);assert.equal(held.length,9*67+8);
+ for(const burst of parts.bursts)assert.deepEqual(burst,tap.slice(0,67));
+ assert.deepEqual([...new Set(parts.gaps)],[tap[67]]);assert.equal(total(parts.bursts[0])+parts.gaps[0],108080);
+ assert.ok(total(held)>800000&&total(held)<=950000,String(total(held)));
+ // A recording of one burst only: the same, at the usual pace.
+ const once=heldTimings(samsungTimings(0xE0E0E01F,1)),onceParts=bursts(once);
+ assert.equal(onceParts.bursts.length,9);assert.equal(total(onceParts.bursts[0])+onceParts.gaps[0],108000);assert.ok(validTimings(once));
+ // Three bursts alike (the made-up remote of these tests): the first, at the pace recorded.
+ const three=heldTimings(press([1,0,1,1,0,0,1,0,1,1,1,0])),threeParts=bursts(three);
+ assert.ok(threeParts.bursts.length>9);for(const burst of threeParts.bursts)assert.deepEqual(burst,threeParts.bursts[0]);assert.deepEqual([...new Set(threeParts.gaps)],[40000]);assert.ok(validTimings(three)&&total(three)<=950000);
+ // NEC: the key once, then the short "still held" burst every 108 ms.
+ const key=[9000,4500];for(let bit=0;bit<32;bit++)key.push(560,bit%2?1690:560);key.push(560);
+ const still=[9000,2250,560],nec=heldTimings([...key,108000-total(key),...still]),necParts=bursts(nec);
+ assert.deepEqual(necParts.bursts[0],key);assert.ok(necParts.bursts.length>=7);for(const burst of necParts.bursts.slice(1))assert.deepEqual(burst,still);
+ assert.equal(necParts.gaps[0],108000-total(key));assert.deepEqual([...new Set(necParts.gaps.slice(1))],[108000-total(still)]);assert.ok(validTimings(nec)&&total(nec)<=950000);
+ // The second and third bursts alike but not the first (a key sent without its header after the first time): those.
+ const bare=key.slice(2),jvc=heldTimings([...key,20000,...bare,20000,...bare]),jvcParts=bursts(jvc);
+ assert.deepEqual(jvcParts.bursts[0],key);for(const burst of jvcParts.bursts.slice(1))assert.deepEqual(burst,bare);assert.ok(jvcParts.bursts.length>3&&validTimings(jvc));
+ // A signal in two different parts is repeated whole, never in pieces.
+ const twoParts=[...key,30000,...key.slice(0,31)],whole=heldTimings(twoParts);
+ assert.deepEqual(whole.slice(0,twoParts.length),twoParts);assert.deepEqual(whole.slice(twoParts.length+1,2*twoParts.length+1),twoParts);assert.ok(whole[twoParts.length]>=40000&&validTimings(whole));
+ // Nothing is added to a signal that leaves no room, or that cannot be told apart into marks and gaps.
+ const long=[9000,4500,...Array(399).fill(1200)];assert.equal(total(long)>475000,true);assert.equal(heldTimings(long),long);
+ const even=[9000,4500,560,560];assert.equal(heldTimings(even),even);
+ const scrap=[9000,6000,560];assert.equal(heldTimings(scrap),scrap);
+ // Whatever the recording, the result is one the boards take.
+ for(const c of seed.commands){const out=heldTimings(c.raw_us);assert.ok(validTimings(out),c.name);assert.ok(total(out)<=950000||out===c.raw_us,c.name);}
+});
+test('only a step up or down or an arrow can be held, and not on a fan, a heater or a device that asks first',async()=>{
+ assert.ok(holdable({kind:'tv'},{icon:'plus',label:'Volume up'}));assert.ok(holdable({kind:'other'},{icon:'left',label:'Left'}));assert.ok(holdable({kind:'light'},{icon:'minus',label:'Dimmer'}));
+ for(const [appliance,button]of [[{kind:'tv'},{icon:'power',label:'On/off'}],[{kind:'tv'},{icon:'left',label:'Back'}],[{kind:'tv'},{icon:'left',label:'Return'}],[{kind:'tv'},{icon:'silence',label:'Mute'}],[{kind:'fan'},{icon:'plus',label:'Speed up'}],[{kind:'heater'},{icon:'plus',label:'Warmer'}],[{kind:'tv',careful:true},{icon:'plus',label:'Volume up'}],[null,{icon:'plus',label:'x'}],[{kind:'tv'},null]])
+  assert.equal(holdable(appliance,button),false,JSON.stringify([appliance,button]));
+ const hub=createHub({seed,timing:quick});await hub.ready;
+ assert.equal(hub.view().appliances[0].buttons.some(b=>b.hold),false);   // the fan
+ const tv=(await hub.addAppliance({name:'TV',kind:'tv'})).body.appliance;await hub.addReady(tv.id,'samsung-tv');
+ const held=()=>hub.view({full:false}).appliances.find(a=>a.id===tv.id).buttons.filter(b=>b.hold).map(b=>b.label);
+ assert.deepEqual(held(),['Volume up','Volume down','Channel up','Channel down','Up','Down','Left','Right']);
+ await hub.changeAppliance(tv.id,{careful:true});assert.deepEqual(held(),[]);
+ await hub.changeAppliance(tv.id,{careful:false});assert.equal(held().length,8);
+});
+test('a held button goes to the transmitter as one signal of under a second, and the page is told',async()=>{
+ const hub=createHub({seed,timing:quick});await hub.ready;const transmitter=await link(hub,'transmitter'),receiver=await link(hub,'receiver');
+ const tv=(await hub.addAppliance({name:'TV',kind:'tv'})).body.appliance;await hub.addReady(tv.id,'samsung-tv');
+ const button=label=>hub.view().appliances.find(a=>a.id===tv.id).buttons.find(b=>b.label===label);
+ const deliver=async(body,ok=true)=>{const waiting=hub.nextCommand(transmitter.device,200),sending=hub.send({...body,...request()}),handed=await waiting;assert.equal(handed.status,200);hub.commandDone(transmitter.device,{id:handed.body.id,ok});return {handed:handed.body,answer:await sending};};
+ const up=button('Volume up');
+ const first=await deliver({button_id:up.id,hold:true});
+ assert.deepEqual(first.handed.commands[0].raw_us,heldTimings(samsungTimings(0xE0E0E01F)));assert.equal(first.handed.commands[0].raw_us.length,611);assert.equal(first.handed.label,'TV · Volume up (held)');assert.equal(first.handed.commands[0].carrier_khz,38);
+ assert.deepEqual(first.answer,{status:200,body:{sent:true,held:true,milliseconds:926,message:'Held for 0.9 seconds. The device\'s response is not confirmed.'}});
+ assert.equal(hub.view().appliances.find(a=>a.id===tv.id).lastSent.label,'Volume up');
+ // Holding on is asking again: each answer is followed by the next request.
+ await pause(40);const second=await deliver({button_id:up.id,hold:true});assert.equal(second.answer.body.held,true);
+ // Without `hold` the same button is the one press it always was.
+ await pause(40);const tap=await deliver({button_id:up.id});assert.deepEqual(tap.handed.commands[0].raw_us,samsungTimings(0xE0E0E01F));assert.deepEqual(tap.answer.body,{sent:true,message:'Sent. The device\'s response is not confirmed.'});assert.equal(tap.handed.label,'TV · Volume up');
+ await pause(40);
+ // What cannot be held is refused, and nothing is sent.
+ const refused=await hub.send({button_id:button('On/off').id,hold:true,...request()});assert.deepEqual(refused,{status:400,body:{message:'TV · On/off is sent once for each press. No command was sent.'}});
+ assert.equal((await hub.send({button_id:button('Back').id,hold:true,...request()})).status,400);
+ const fan=hub.view().appliances[0];assert.equal((await hub.send({button_id:fan.buttons.find(b=>b.icon==='plus').id,hold:true,...request()})).status,400);
+ await hub.addRecording(receiver.device,capture(samsungTimings(0xE0E0E01F)));
+ assert.deepEqual(await hub.send({recording_id:hub.view().recordings.at(-1).id,hold:true,...request()}),{status:400,body:{message:'Only a saved button can be held. No command was sent.'}});
+ // Only `hold: true` is a hold.
+ const loose=await deliver({button_id:up.id,hold:'yes'});assert.deepEqual(loose.handed.commands[0].raw_us,samsungTimings(0xE0E0E01F));assert.equal(loose.answer.body.held,undefined);await pause(40);
+ // A device that asks first: its buttons are confirmed one press at a time.
+ await hub.changeAppliance(tv.id,{careful:true});
+ assert.equal((await hub.send({button_id:up.id,hold:true,...request()})).status,409);assert.equal((await hub.send({button_id:up.id,hold:true,confirm:true,...request()})).status,400);
+ await hub.changeAppliance(tv.id,{careful:false});
+ // In practice mode nothing is said to have been held.
+ const practice=hub.nextCommand(transmitter.device,200,true),sending=hub.send({button_id:up.id,hold:true,...request()}),handed=await practice;
+ hub.commandDone(transmitter.device,{id:handed.body.id,ok:true,practice:true});assert.deepEqual((await sending).body,{sent:false,practice:true,message:'The transmitter is in practice mode: it received TV · Volume up (held) and sent no infrared.'});
+});
+test('a held button that leaves no room to repeat is sent as it is',async()=>{
+ const hub=createHub({seed,timing:quick});await hub.ready;const transmitter=await link(hub,'transmitter'),receiver=await link(hub,'receiver');
+ const box=(await hub.addAppliance({name:'Box',kind:'other'})).body.appliance,long=[9000,4500,...Array(399).fill(1200)];
+ await hub.addRecording(receiver.device,capture(long));const made=await hub.addButton(box.id,{label:'Volume up',recordingId:hub.view().recordings.at(-1).id});assert.equal(made.status,200);
+ const up=hub.view().appliances.find(a=>a.id===box.id).buttons[0];assert.equal(up.hold,true);
+ const waiting=hub.nextCommand(transmitter.device,200),sending=hub.send({button_id:up.id,hold:true,...request()}),handed=await waiting;
+ assert.deepEqual(handed.body.commands[0].raw_us,long);assert.equal(handed.body.label,'Box · Volume up');
+ hub.commandDone(transmitter.device,{id:handed.body.id,ok:true});assert.deepEqual((await sending).body,{sent:true,message:'Sent. The device\'s response is not confirmed.'});
+});
+
+test('a command the board finds too soon after its last one is answered "wait", and the next try goes through',async()=>{
+ const hub=createHub({seed,timing:{...quick,gap:300}});await hub.ready;const transmitter=await link(hub,'transmitter');
+ const power=hub.view().appliances[0].buttons[0];
+ const attempt=async report=>{const waiting=hub.nextCommand(transmitter.device,200),sending=hub.send({button_id:power.id,...request()}),handed=await waiting;assert.equal(handed.status,200);hub.commandDone(transmitter.device,{id:handed.body.id,...report});return sending;};
+ assert.equal((await attempt({ok:true})).status,200);await pause(320);
+ // The website's own gap has passed; the board, which began a moment later, says it is too soon.
+ assert.deepEqual(await attempt({ok:false,message:'Please wait before another command.'}),{status:429,body:{sent:false,message:'Wait a moment before the next command. No command was sent.'}});
+ // Nothing was sent, so nothing has to be waited for again.
+ assert.equal((await attempt({ok:true})).status,200);
+ // Straight after a command that was sent, the website's own gap holds as before.
+ assert.equal((await hub.send({button_id:power.id,...request()})).status,429);await pause(320);
+ // Any other failure of the board is still told as one, and counts as a command.
+ const failed=await attempt({ok:false,message:'The command could not be read.'});assert.equal(failed.status,502);assert.match(failed.body.message,/^The transmitter could not send it: The command could not be read\. Nothing was sent\.$/);
+ assert.equal((await hub.send({button_id:power.id,...request()})).status,429);
 });

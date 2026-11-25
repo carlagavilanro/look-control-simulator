@@ -169,11 +169,14 @@ fs::LittleFSFS LittleFS;
 
 // ---- infrared ----
 void IRsend::begin() {}
-// What would have been sent is written to the USB line, where the test reads it.
+// What would have been sent is written to the USB line, where the test reads it. Like the real
+// library, it returns only when the signal is over: a held button of 0.9 seconds takes 0.9 seconds.
 void IRsend::sendRaw(const uint16_t buf[], const uint16_t len, const uint16_t hz) {
   String line = String("IRSEND ") + hz + " " + len + ":";
-  for (uint16_t i = 0; i < len; ++i) { line += " "; line += buf[i]; }
+  unsigned long total = 0;
+  for (uint16_t i = 0; i < len; ++i) { line += " "; line += buf[i]; total += buf[i]; }
   Serial.println(line);
+  std::this_thread::sleep_for(std::chrono::microseconds(total));
 }
 // Signals "arrive" as lines of microsecond timings appended to ir-in.txt.
 static size_t irOffset = 0; static std::vector<uint16_t> irBuffer;

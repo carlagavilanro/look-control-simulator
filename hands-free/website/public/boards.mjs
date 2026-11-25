@@ -9,7 +9,7 @@
 //   3. Wi-Fi     the name and password go to the board as one line over the cable. They are
 //                never sent to the website and never stored by this page.
 //   4. Link      the board shows a link code once it is on Wi-Fi; one press approves it.
-import {HELLO,FORGET,BOARDS,wifiProblem,wifiRequest,lineReader,boardAnswer,olderProgram,validPrograms,compare,md5} from './board-usb.mjs';
+import {HELLO,FORGET,BOARDS,wifiProblem,wifiRequest,lineReader,boardAnswer,heardSignal,olderProgram,validPrograms,compare,md5} from './board-usb.mjs';
 const $=id=>document.getElementById(id);
 // The tests stand in for the USB side and for the flashing tool. In ordinary use there is neither.
 const standIn=globalThis.handsFreeBoardTest||{};
@@ -30,6 +30,10 @@ let site=null,siteAt=0,siteAsking=false;
 // board says it is. A board can be given the other board's program (it was the transmitter and is
 // to be the receiver, or the wrong one was installed): the choice stays open for that.
 let picked=false;
+// heard: the last signal the receiver said it heard while plugged in here, and how many so far.
+// (A receiver can be online and linked and still hear nothing: no sensor on that board, a loose
+// wire, a remote that does not use infrared. This shows it without going through the website.)
+let heard=null;
 async function askSite(){
  if(siteAsking)return;siteAsking=true;
  try{const got=await fetch('/api/hub');if(got.ok){const body=await got.json();site=Array.isArray(body.devices)?body.devices.filter(d=>d.kind==='receiver'||d.kind==='transmitter'):null;render();}}
@@ -42,6 +46,8 @@ function progress(text,percent){$('progress').hidden=false;$('progress-line').te
 
 // ---- the USB line -------------------------------------------------------------------------------
 function onLine(line){
+ const signal=heardSignal(line);
+ if(signal){heard={...signal,at:new Date(),count:(heard?.count||0)+1};render();return;}
  const answer=boardAnswer(line);
  if(answer){
   board=answer;answeredAt=Date.now();older='';
@@ -85,7 +91,7 @@ async function connect(){
  try{
   const chosen=await serial.requestPort();
   await closeLine();
-  port=chosen;board=null;older='';linkedAs='';joiningSince=0;site=null;siteAt=0;picked=false;
+  port=chosen;board=null;older='';linkedAs='';joiningSince=0;site=null;siteAt=0;picked=false;heard=null;
   await openLine();render();
   await greet([300,900,1500]);
  }catch(error){
@@ -93,7 +99,7 @@ async function connect(){
   else{port=reader?port:null;note(/open|in use|NetworkError|InvalidState/i.test(String(error?.name)+error?.message)?'The board could not be opened. Another program may be using it (Arduino\'s Serial Monitor, for one). Close that program and press Connect again.':'The board could not be reached. Unplug it, plug it back in and press Connect.','problem');}
  }finally{busy=false;render();}
 }
-async function disconnect(){if(busy)return;await closeLine();port=null;board=null;older='';picked=false;note('');render();}
+async function disconnect(){if(busy)return;await closeLine();port=null;board=null;older='';picked=false;heard=null;note('');render();}
 
 // ---- the program ----------------------------------------------------------------------------------
 const chosenKind=()=>document.querySelector('input[name=kind]:checked')?.value||board?.kind||'';
@@ -131,7 +137,7 @@ async function install(){
   await loader.after('hard_reset');
   await transport.disconnect();transport=null;
   await pause(1200);
-  board=null;older='';picked=false;
+  board=null;older='';picked=false;heard=null;
   await openLine();
   await greet([600,1000,1500,2000,2500]);
   if(board)note(board.wifi.set?'The program is on the board. Its Wi-Fi'+(board.link.linked?' and its link were':' was')+' kept.':'The program is on the board. Next: its Wi-Fi.');
@@ -242,12 +248,21 @@ function render(){
    :board.wifi.connected?'The board is asking the website for a link code. This takes a few seconds.':'The board links once it is on Wi-Fi (step 3).';
   $('link').hidden=board.link.linked||elsewhere||!board.link.code;$('link').disabled=busy;$('done').hidden=!board.link.linked;
  }
+ // 5. the receiver's sensor, tried from here: the board prints each signal as it hears it.
+ const listens=(board?.kind||older)==='receiver';
+ $('sensor-block').hidden=!listens;$('sensor-block').dataset.done=String(listens&&!!heard?.saved);
+ if(listens){
+  $('sensor-chip').dataset.state=!heard?'idle':heard.saved?'online':'offline';
+  $('sensor-line').textContent=!heard?'Nothing heard yet':'Heard a signal at '+heard.at.toLocaleTimeString()+(heard.saved?'':', but the board did not keep it');
+  $('sensor-detail').textContent=!heard?'Point a remote at the board\'s sensor and press a key. This changes the moment the board hears it.'
+   :heard.timings+' pulses'+(heard.saved?' · saved on the board':heard.reason?' · '+heard.reason:heard.repeat?' · a held key repeating':'')+' · '+heard.count+(heard.count===1?' signal':' signals')+' since this board was connected';
+ }
 }
 
 $('connect').onclick=connect;$('disconnect').onclick=disconnect;$('install').onclick=install;$('wifi-form').onsubmit=saveWifi;$('wifi-forget').onclick=forgetWifi;$('link').onclick=link;
 $('wifi-show').onchange=()=>{$('wifi-password').type=$('wifi-show').checked?'text':'password';};
 for(const choice of document.querySelectorAll('input[name=kind]'))choice.onchange=()=>{picked=true;render();};
-serial?.addEventListener?.('disconnect',async event=>{if(port&&(event.target===port||event.port===port)&&!busy){await closeLine();port=null;board=null;older='';picked=false;note('The board was unplugged.');render();}});
+serial?.addEventListener?.('disconnect',async event=>{if(port&&(event.target===port||event.port===port)&&!busy){await closeLine();port=null;board=null;older='';picked=false;heard=null;note('The board was unplugged.');render();}});
 // The board is asked how it is doing every two seconds. One that stops answering is shown as such.
 setInterval(()=>{
  if(busy||!reader)return;

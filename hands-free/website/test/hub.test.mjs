@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {randomBytes} from 'node:crypto';
-import {createHub,validTimings,firstBurst,sameSignal,iconFor,LIMITS} from '../hub.mjs';
+import {createHub,validTimings,firstBurst,sameSignal,cutShort,iconFor,LIMITS} from '../hub.mjs';
 import {createCloudServer} from '../cloud-server.mjs';
 
 const seed=JSON.parse(fs.readFileSync(new URL('../fan-signals.json',import.meta.url),'utf8'));
@@ -130,7 +130,56 @@ test('a recorded button that may not be the remote\'s is marked: a signal alread
  time+=200000;hub.startLearning({applianceId:lamp.id,label:'Brighter'});time+=2000;await hear(on);
  assert.deepEqual(hub.view().learned.sameAs,['On']);
  // The linked app sees the same marks.
- assert.deepEqual(Object.keys(hub.view({full:false}).learned).sort(),['applianceId','at','buttonId','heardBefore','label','milliseconds','sameAs','timings']);
+ assert.deepEqual(Object.keys(hub.view({full:false}).learned).sort(),['applianceId','at','buttonId','heardBefore','label','milliseconds','partial','sameAs','timings']);
+});
+// The first real remote (a Samsung TV's): one key was saved whole (SAMSUNG, 32 bits, 135 timings:
+// the code twice) and one as 58 timings with no protocol, nine short of one code. The TV ignored
+// the second. A whole Samsung code is a header and 32 bits: 67 timings.
+function samsung(code,frames=2){const out=[];for(let f=0;f<frames;f++){out.push(4500,4500);for(let bit=31;bit>=0;bit--)out.push(560,(code>>>bit)&1?1690:560);out.push(560,f===frames-1?560:46000);}return out.slice(0,-1);}
+test('a recording that is only part of a signal is told from the device\'s other buttons',()=>{
+ const whole=code=>({protocol:'SAMSUNG',raw_us:samsung(code)}),part={protocol:'UNKNOWN',raw_us:samsung(0xE0E0E01F,1).slice(9)};
+ assert.equal(samsung(0xE0E06798).length,135);assert.equal(part.raw_us.length,58);
+ assert.equal(cutShort([],part),null,'nothing to compare the first button with');
+ assert.deepEqual(cutShort([whole(0xE0E06798)],part),{protocol:'SAMSUNG',timings:58});
+ assert.equal(cutShort([whole(0xE0E06798)],whole(0xE0E0E01F)),null);
+ assert.equal(cutShort([whole(0xE0E06798),part],whole(0xE0E0E01F)),null,'an earlier bad take does not make a good one doubtful');
+ assert.deepEqual(cutShort([whole(0xE0E06798),whole(0xE0E0E01F)],part),{protocol:'SAMSUNG',timings:58});
+ // Buttons saved before the protocol was kept say it in their description.
+ assert.deepEqual(cutShort([{origin:'SAMSUNG · 32 bits · 0xE0E06798',raw_us:samsung(0xE0E06798)}],{origin:'29 bits · 0x72F243B1',raw_us:part.raw_us}),{protocol:'SAMSUNG',timings:58});
+ assert.equal(cutShort([{origin:'29 bits · 0x72F243B1',raw_us:part.raw_us}],{origin:'SAMSUNG · 32 bits · 0xE0E06798',raw_us:samsung(0xE0E06798)}),null);
+ // Two protocols on one device: no saying which is right.
+ assert.equal(cutShort([whole(0xE0E06798),{protocol:'NEC',raw_us:press([1,0,1,1,0,0,1,0,1,0,0,1])}],part),null);
+ // A key from another remote, added to the same device, is not doubted: recognised as another
+ // protocol, or not recognised but made of other pulses (here a shorter code with 900 and 1800).
+ assert.equal(cutShort([whole(0xE0E06798)],{protocol:'NEC',raw_us:press([1,0,1,1,0,0,1,0,1,0,0,1])}),null);
+ assert.equal(cutShort([whole(0xE0E06798)],{protocol:'UNKNOWN',raw_us:Array.from({length:27},(_,i)=>i%4===1?1800:900)}),null);
+ // The end lost instead of the beginning (the remote turned away): the header and 28 bits.
+ assert.deepEqual(cutShort([whole(0xE0E06798)],{protocol:'UNKNOWN',raw_us:samsung(0xE0E0E01F,1).slice(0,58)}),{protocol:'SAMSUNG',timings:58});
+ // A remote the receiver has no name for (the fan): its codes are one length; a shorter one is doubted, a repeat count is not.
+ const fan=[press([1,0,1,1,0,0,1,0,1,0,0,1],3),press([0,1,1,0,1,0,0,1,1,0,1,0],5)].map(raw_us=>({protocol:'UNKNOWN',raw_us}));
+ assert.equal(cutShort(fan,{protocol:'UNKNOWN',raw_us:press([1,1,1,0,0,0,1,1,0,0,1,0],1)}),null);
+ assert.deepEqual(cutShort(fan,{protocol:'UNKNOWN',raw_us:press([1,1,1,0,0,0,1,1,0,0,1,0],1).slice(8)}),{protocol:'',timings:19});
+ assert.deepEqual(cutShort(fan.slice(0,1),{protocol:'UNKNOWN',raw_us:press([1,1,1,0],1)}),{protocol:'',timings:11},'one other button is enough when the pulses are its own');
+ assert.equal(cutShort(fan.slice(0,1),fan[1]),null);
+ for(const a of seed.commands)assert.equal(cutShort(seed.commands.filter(b=>b!==a).map(b=>({origin:'The fan recordings that came with the project',raw_us:b.raw_us})),{origin:'The fan recordings that came with the project',raw_us:a.raw_us}),null,a.name);
+});
+test('"Record a button" says when it caught only part of a signal, and the pages are told which buttons look like that',async()=>{
+ const hub=createHub({seed,timing:quick});await hub.ready;const receiver=await link(hub,'receiver');
+ const tv=(await hub.addAppliance({name:'TV',kind:'tv'})).body.appliance;
+ const record=async(label,raw,protocol,id)=>{assert.equal((await hub.startLearning({applianceId:tv.id,label})).status,200);assert.equal((await hub.addRecording(receiver.device,capture(raw,{protocol,capture_id:id,decoded_hex:'0x'+id}),20)).status,200);return hub.view().learned;};
+ let learned=await record('Volume up',samsung(0xE0E0E01F),'SAMSUNG',1);assert.equal(learned.partial,null);
+ learned=await record('Volume down',samsung(0xE0E0D02F,1).slice(9),'UNKNOWN',2);
+ assert.deepEqual(learned.partial,{protocol:'SAMSUNG',timings:58});
+ let buttons=hub.view().appliances.find(a=>a.id===tv.id).buttons;
+ assert.deepEqual(buttons.map(b=>[b.label,b.doubt===true]),[['Volume up',false],['Volume down',true]]);
+ assert.deepEqual(hub.view({full:false}).appliances.find(a=>a.id===tv.id).buttons.map(b=>b.doubt===true),[false,true],'the Windows app is told too');
+ // Recorded again, whole: the doubt is gone, and nothing is said.
+ const again=buttons[1].id;assert.equal((await hub.startLearning({applianceId:tv.id,label:'Volume down',replace:again})).status,200);
+ assert.equal((await hub.addRecording(receiver.device,capture(samsung(0xE0E0D02F),{protocol:'SAMSUNG',capture_id:3,decoded_hex:'0x3'}),20)).status,200);
+ assert.equal(hub.view().learned.partial,null);
+ buttons=hub.view().appliances.find(a=>a.id===tv.id).buttons;assert.deepEqual(buttons.map(b=>[b.id===again||b.label==='Volume up',b.doubt===true]),[[true,false],[true,false]]);
+ // The fan that came with the project is not doubted.
+ assert.equal(hub.view().appliances[0].buttons.some(b=>b.doubt),false);
 });
 test('a command reaches a waiting transmitter at once and the page hears what happened',async()=>{
  const hub=createHub({seed,timing:quick});await hub.ready;

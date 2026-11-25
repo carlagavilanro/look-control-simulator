@@ -77,7 +77,7 @@ function renderAppliances(){
     removeButton('Remove device',()=>act(()=>call('/api/appliances/'+a.id,'DELETE'))))),
   h('label',{class:'check'},(()=>{const box=h('input',{type:'checkbox'});box.checked=a.careful;box.onchange=()=>act(()=>call('/api/appliances/'+a.id,'PATCH',{careful:box.checked}),()=>box.checked?a.name+' now asks "Yes or No" before every command.':a.name+' now sends without asking.');return box;})(),'Ask "Yes or No" before every command'+(a.kind==='heater'?' (recommended for a heater)':'')),
   h('ul',{class:'rows'},a.buttons.length?a.buttons.map(b=>h('li',{},
-   h('div',{class:'row-main'},picture(b.icon),h('div',{},b.label,h('small',{text:[b.origin,b.timings+' timings',b.carrier_khz+' kHz'].filter(Boolean).join(' · ')}))),
+   h('div',{class:'row-main'},picture(b.icon),h('div',{},b.label,h('small',{text:[b.origin,b.timings+' timings',b.carrier_khz+' kHz'].filter(Boolean).join(' · ')}),b.doubt?h('small',{class:'doubt',text:'This looks like only part of the signal. If the device does not react to it, record it again.'}):null)),
    h('div',{class:'row-actions'},h('button',{type:'button',text:'Send',onclick:()=>send({button_id:b.id},a.name+' · '+b.label,a.careful)}),
     h('button',{type:'button',text:'Rename',onclick:()=>edit('Rename the button','Name',b.label,24,label=>act(()=>call('/api/buttons/'+b.id,'PATCH',{label,icon:b.icon==='dot'?iconFor(label,a.kind):b.icon})))}),
     h('button',{type:'button',text:'Record again',onclick:()=>act(()=>call('/api/learn','POST',{applianceId:a.id,label:b.label,icon:b.icon,replace:b.id}))}),

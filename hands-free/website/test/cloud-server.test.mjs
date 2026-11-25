@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {createCloudServer} from '../cloud-server.mjs';
 
 const credentials={username:'test-user',password:'test-only-password-32-characters-long'};
@@ -45,4 +48,47 @@ test('repeated invalid sign-ins are rate limited',async t=>{
  const base=`http://127.0.0.1:${server.address().port}`;
  for(let i=0;i<10;i++)assert.equal((await fetch(base+'/login',{method:'POST',headers:{Origin:base},body:'username=wrong&password=wrong'})).status,401);
  assert.equal((await fetch(base+'/login',{method:'POST',headers:{Origin:base},body:'username=wrong&password=wrong'})).status,429);
+});
+
+// Every update of the website restarts it. Sign-ins used to live in memory only, so each update
+// signed everybody out (four times on the afternoon the first boards were set up).
+test('with storage attached a sign-in survives a restart; the file holds no cookie; signing out ends it for good',async t=>{
+ const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'hands-free-sessions-'));
+ const start=async()=>{const server=createCloudServer({...credentials,dataDir,persistent:true});await new Promise(r=>server.listen(0,'127.0.0.1',r));return {server,base:`http://127.0.0.1:${server.address().port}`};};
+ const stop=server=>{server.closeAllConnections();return new Promise(r=>server.close(r));};
+ const hub=(base,cookie)=>fetch(base+'/api/hub',{headers:{Cookie:cookie}}).then(r=>r.status);
+ let {server,base}=await start();
+ const signed=await fetch(base+'/login',{method:'POST',redirect:'manual',body:new URLSearchParams(credentials),headers:{Origin:base}});assert.equal(signed.status,303);
+ const cookie=signed.headers.get('set-cookie').split(';')[0],value=cookie.split('=')[1];
+ assert.equal(await hub(base,cookie),200);
+ const file=path.join(dataDir,'sessions.json'),kept=fs.readFileSync(file,'utf8'),hash=Object.keys(JSON.parse(kept))[0];
+ assert.equal(Object.keys(JSON.parse(kept)).length,1);assert.equal(kept.includes(value),false,'the cookie itself is not written');assert.match(hash,/^[a-f0-9]{64}$/);
+ if(process.platform!=='win32')assert.equal(fs.statSync(file).mode&0o777,0o600);
+ await stop(server);({server,base}=await start());
+ assert.equal(await hub(base,cookie),200,'still signed in after the restart');
+ assert.equal(await hub(base,'look_session='+hash),401,'what is in the file is not a way in');
+ assert.equal(await hub(base,'look_session='+'0'.repeat(64)),401);
+ assert.equal((await fetch(base+'/logout',{method:'POST',redirect:'manual',headers:{Cookie:cookie,Origin:base}})).status,303);
+ assert.deepEqual(JSON.parse(fs.readFileSync(file,'utf8')),{});
+ await stop(server);({server,base}=await start());t.after(()=>stop(server));
+ assert.equal(await hub(base,cookie),401,'signed out stays signed out');
+});
+test('sign-ins: nothing is written without storage, and a stale or damaged file is ignored',async t=>{
+ const dataDir=fs.mkdtempSync(path.join(os.tmpdir(),'hands-free-sessions-'));
+ const servers=[];t.after(()=>{for(const server of servers){server.closeAllConnections();server.close();}});
+ const start=async options=>{const server=createCloudServer({...credentials,...options});servers.push(server);await new Promise(r=>server.listen(0,'127.0.0.1',r));return `http://127.0.0.1:${server.address().port}`;};
+ const signIn=async base=>(await fetch(base+'/login',{method:'POST',redirect:'manual',body:new URLSearchParams(credentials),headers:{Origin:base}})).headers.get('set-cookie').split(';')[0];
+ // Storage not attached (a folder is given, but it does not last): memory only.
+ let base=await start({dataDir,persistent:false});const cookie=await signIn(base);
+ assert.equal((await fetch(base+'/api/hub',{headers:{Cookie:cookie}})).status,200);assert.equal(fs.existsSync(path.join(dataDir,'sessions.json')),false);
+ // An ended sign-in, a made-up key and a value that is not a time are all left out; a damaged file starts empty.
+ const ended='a'.repeat(64),live='b'.repeat(64);
+ fs.writeFileSync(path.join(dataDir,'sessions.json'),JSON.stringify({[ended]:Date.now()-1000,'not-a-hash':Date.now()+60000,[live]:'tomorrow'}));
+ base=await start({dataDir,persistent:true});
+ for(const value of [ended,live])assert.equal((await fetch(base+'/api/hub',{headers:{Cookie:'look_session='+value}})).status,401);
+ const fresh=await signIn(base);assert.equal((await fetch(base+'/api/hub',{headers:{Cookie:fresh}})).status,200);
+ assert.equal(Object.keys(JSON.parse(fs.readFileSync(path.join(dataDir,'sessions.json'),'utf8'))).length,1,'only the live sign-in is kept');
+ fs.writeFileSync(path.join(dataDir,'sessions.json'),'{not json');
+ base=await start({dataDir,persistent:true});assert.equal((await fetch(base+'/api/hub',{headers:{Cookie:fresh}})).status,401);
+ assert.equal((await fetch(base+'/api/hub',{headers:{Cookie:await signIn(base)}})).status,200);
 });

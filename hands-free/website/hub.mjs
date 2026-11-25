@@ -49,6 +49,30 @@ export function validTimings(raw){
 // recordings of one button differ in length. The first burst (up to the first long gap) is what
 // identifies the button.
 export function firstBurst(raw){const end=raw.findIndex((value,index)=>index%2===1&&value>=5000);return end<0?raw:raw.slice(0,end);}
+// A recording that is probably only part of a signal: the receiver began listening in the middle of
+// it or lost its end (seen on the first real remote: a Samsung key saved with 58 timings and no
+// protocol, beside keys saved whole as SAMSUNG with 135). It is told from the device's other
+// buttons, which come from the same remote. All of this has to hold:
+//   - the receiver did not recognise it as a whole code of any protocol;
+//   - the other buttons agree on what a code is: one protocol, or (for a remote the receiver has
+//     no name for) codes of one length;
+//   - its code is shorter than theirs;
+//   - it is made of their pulses and nothing else. A key from another remote is not doubted.
+// `signal` and the buttons: {protocol?, origin?, raw_us}. Returns {protocol, timings} (protocol ''
+// when the buttons have none) or null.
+const protocolOf=b=>typeof b.protocol==='string'?(b.protocol==='UNKNOWN'?'':b.protocol):(/^([A-Z][A-Z0-9_]{1,23}) · /.exec(b.origin||'')?.[1]||'');
+const near=(a,b)=>Math.abs(a-b)<=Math.max(160,.22*Math.max(a,b));
+// The different pulse lengths in some codes, each kind once.
+function pulses(bursts){const kinds=[];for(const value of bursts.flat().sort((a,b)=>a-b))if(!kinds.length||!near(kinds.at(-1),value))kinds.push(value);return kinds;}
+export function cutShort(others,signal){
+ const names=[...new Set(others.map(protocolOf).filter(Boolean))];
+ if(!others.length||protocolOf(signal)||names.length>1)return null;
+ const like=(names.length?others.filter(b=>protocolOf(b)===names[0]):others).map(b=>firstBurst(b.raw_us)),lengths=like.map(burst=>burst.length),least=Math.min(...lengths);
+ const mine=firstBurst(signal.raw_us);
+ if(Math.max(...lengths)-least>2||mine.length>=least-2)return null;
+ const kinds=pulses(like);
+ return mine.every(value=>kinds.some(kind=>near(kind,value)))?{protocol:names[0]||'',timings:signal.raw_us.length}:null;
+}
 export function sameSignal(a,b){
  const x=firstBurst(a),y=firstBurst(b);if(x.length<3||x.length!==y.length)return false;
  return x.every((value,index)=>Math.abs(value-y[index])<=Math.max(160,.22*Math.max(value,y[index])));
@@ -181,8 +205,10 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
    // in the two minutes before Record was pressed, or the device has it under another name.
    const heardBefore=data.recordings.filter(r=>r.fresh&&r.at<learning.startedAt-750&&r.at>=learning.startedAt-120000&&sameSignal(r.raw_us,recording.raw_us)).length;
    const sameAs=(appliance(learning.applianceId)?.buttons||[]).filter(b=>b.id!==learning.replace&&b.label.toLowerCase()!==learning.label.toLowerCase()&&sameSignal(b.raw_us,recording.raw_us)).map(b=>b.label);
+   const target=appliance(learning.applianceId),replaced=target&&(learning.replace?target.buttons.find(b=>b.id===learning.replace):target.buttons.find(b=>b.label.toLowerCase()===learning.label.toLowerCase()));
+   const partial=target?cutShort(target.buttons.filter(b=>b!==replaced),recording):null;
    const made=await addButton(learning.applianceId,{label:learning.label,icon:learning.icon,replace:learning.replace},recording);
-   if(made.status===200){learned={applianceId:learning.applianceId,buttonId:made.body.button.id,label:learning.label,at:now(),heardBefore,sameAs,...describe(recording.raw_us)};learning=null;return {status:200,body:{ok:true,button:learned.label}};}
+   if(made.status===200){learned={applianceId:learning.applianceId,buttonId:made.body.button.id,label:learning.label,at:now(),heardBefore,sameAs,partial,...describe(recording.raw_us)};learning=null;return {status:200,body:{ok:true,button:learned.label}};}
   }
   data.recordings.push(recording);
   if(data.recordings.length>LIMITS.recordings)data.recordings.splice(0,data.recordings.length-LIMITS.recordings);
@@ -229,7 +255,7 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
   if(!Number.isInteger(carrier)||carrier<20||carrier>60)return {status:400,body:{message:'The carrier must be 20 to 60 kHz.'}};
   const existing=replace?a.buttons.find(b=>b.id===replace):a.buttons.find(b=>b.label.toLowerCase()===chosen.toLowerCase());
   if(!existing&&a.buttons.length>=LIMITS.buttons)return {status:409,body:{message:'Remove a button before adding another.'}};
-  const button={id:existing?.id||id('b'),label:chosen,icon:ICONS.includes(icon)?icon:existing?.icon||iconFor(chosen),carrier_khz:carrier,raw_us:recording.raw_us,addedAt:now(),fingerprint:recording.fingerprint,
+  const button={id:existing?.id||id('b'),label:chosen,icon:ICONS.includes(icon)?icon:existing?.icon||iconFor(chosen),carrier_khz:carrier,raw_us:recording.raw_us,addedAt:now(),fingerprint:recording.fingerprint,protocol:recording.protocol||'UNKNOWN',
    origin:[recording.protocol&&recording.protocol!=='UNKNOWN'?recording.protocol:'',recording.bits?recording.bits+' bits':'',recording.code].filter(Boolean).join(' · ')};
   if(existing)a.buttons[a.buttons.indexOf(existing)]=button;else a.buttons.push(button);
   data.recordings=data.recordings.filter(r=>r.id!==recording.id);
@@ -328,12 +354,22 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
  }
 
  // ---- what the pages are shown -----------------------------------------------------------------
+ // The buttons of a device that look cut short, worked out again only when its buttons change
+ // (the pages ask for the view every two seconds).
+ const doubts=new WeakMap();
+ function doubted(a){
+  const key=a.buttons.map(b=>b.id+'/'+b.fingerprint+'/'+b.raw_us.length).join(' '),kept=doubts.get(a);
+  if(kept?.key===key)return kept.ids;
+  const ids=new Set(a.buttons.filter(b=>cutShort(a.buttons.filter(other=>other!==b),b)).map(b=>b.id));
+  doubts.set(a,{key,ids});return ids;
+ }
  function view({full=true}={}){
   const time=now(),ago=at=>at?Math.max(0,Math.round((time-at)/1000)):null;
   const devices=data.devices.map(d=>{const s=state(d);return {id:d.id,kind:d.kind,name:d.name,firmware:d.firmware||'',online:d.kind==='app'?null:online(d),seenSecondsAgo:ago(s.lastSeen),practice:d.kind==='transmitter'?s.practice:undefined};});
   const sender=transmitter(),senderView=sender?devices.find(d=>d.id===sender.id):null;
   const appliances=data.appliances.map(a=>({id:a.id,name:a.name,kind:a.kind,careful:a.careful===true,lastSent:a.lastSent?{label:a.lastSent.label,secondsAgo:ago(a.lastSent.at)}:null,
-   buttons:a.buttons.map(b=>({id:b.id,label:b.label,icon:b.icon,...(full?{carrier_khz:b.carrier_khz,origin:b.origin||'',...describe(b.raw_us)}:{})}))}));
+   // doubt: this button looks like only part of a signal beside the device's other buttons.
+   buttons:a.buttons.map(b=>({id:b.id,label:b.label,icon:b.icon,...(doubted(a).has(b.id)?{doubt:true}:{}),...(full?{carrier_khz:b.carrier_khz,origin:b.origin||'',...describe(b.raw_us)}:{})}))}));
   const receiver=data.devices.find(d=>d.kind==='receiver'&&online(d))||data.devices.find(d=>d.kind==='receiver');
   const base={transmitter:senderView?{linked:true,online:senderView.online,practice:senderView.practice===true,name:senderView.name}:{linked:false,online:false,practice:false,name:''},
    receiver:{linked:!!receiver,online:!!receiver&&online(receiver)},appliances,

@@ -69,6 +69,11 @@
  <div class="row-actions"><button id="link" class="primary-button" type="button" hidden>Link this board</button><a id="done" class="primary-button" href="/setup" hidden>Done: go to Setup →</a></div>
  <p class="hint">Linking is done once for each board. Afterwards the board only needs power: unplug it from the computer and plug it into any USB charger.</p>
 </section>
+<section class="setup-block" id="sensor-block" aria-labelledby="sensor-title" hidden>
+ <h2 id="sensor-title"><span class="step-number">5</span> Try the sensor</h2>
+ <div class="status-row"><div class="status-chip" id="sensor-chip" data-state="idle" aria-live="polite"><span class="lamp"></span><div><span id="sensor-line">Nothing heard yet</span><small id="sensor-detail">Point a remote at the board's sensor and press a key. This changes the moment the board hears it.</small></div></div></div>
+ <p class="hint">Nothing when you press? The receiver's program has to be on the board that has the sensor (small, black, three legs), with the sensor's signal leg on pin GPIO 15. If the sensor is on your other board, plug that board in and install the receiver's program on it in step 2. A remote that works by Bluetooth or radio sends no infrared for most keys: try its power or volume key, or another remote.</p>
+</section>
 <footer><span><span class="status-dot"></span> Hands Free · Capstone project</span><span>The Wi-Fi password is sent only to the board.</span></footer>
 </main></div>
 <script type="module" src="/boards.mjs"></script></body></html>

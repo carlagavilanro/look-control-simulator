@@ -79,8 +79,12 @@ void loop() {
     // microseconds, including long gaps; the transmitter packs these losslessly.
     for (uint16_t i = 1; i < results.rawlen; ++i)
       raw.add(static_cast<uint32_t>(results.rawbuf[i]) * kRawTick);
-    // Resume after copying the capture, before potentially slow USB printing.
-    receiver.resume();
+    // No receiver.resume() here. The receiver was made with its own copy of the capture (the "true"
+    // above), so decode() has already copied it and started listening again. A second resume()
+    // at this point threw away the beginning of any signal that had started arriving since: the
+    // rest of it was then saved as a short capture with no protocol, which the device ignores when
+    // it is sent back. (Seen with the first real remote: a Samsung key saved with 58 timings where
+    // a whole code has 67.)
     if (capture.overflowed()) Serial.println("{\"type\":\"error\",\"message\":\"Capture allocation failed\"}");
     else {
       String reason;

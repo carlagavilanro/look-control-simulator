@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {createHash,randomBytes} from 'node:crypto';
 import {createCloudServer} from '../cloud-server.mjs';
-import {HELLO,FORGET,wifiProblem,wifiRequest,lineReader,boardAnswer,olderProgram,validPrograms,compare,md5} from '../public/board-usb.mjs';
+import {HELLO,FORGET,wifiProblem,wifiRequest,lineReader,boardAnswer,heardSignal,olderProgram,validPrograms,compare,md5} from '../public/board-usb.mjs';
 
 const hex=data=>createHash('md5').update(data).digest('hex');
 test('MD5 here is MD5: the same as the computer\'s own for every length around the block edges',()=>{
@@ -36,6 +36,21 @@ test('what a board says is read line by line, and only a real answer counts as o
 });
 const part=(name,file,offset,size)=>({part:name,file,offset,size,md5:'0'.repeat(32)});
 const list=()=>({format:1,version:'0.4.43',commit:'abc',built_at:'2026-11-25T00:00:00.000Z',boards:{receiver:{name:'Receiver',firmware:'IRCapture-cloud-2',chip:'ESP32',parts:[part('bootloader','receiver.bootloader.bin',0x1000,18000),part('partitions','receiver.partitions.bin',0x8000,0xc00),part('boot_app0','boot_app0.bin',0xe000,0x2000),part('app','receiver.app.bin',0x10000,900000)]}}});
+// The line the receiver's program prints for every signal it hears (IRCapture.ino). The Boards
+// page shows it as "heard a signal", so a receiver that is online but hears nothing can be told
+// apart from one whose recordings do not reach the website.
+test('a signal the receiver says it heard is read from its USB line, kept or not; nothing else counts as one',()=>{
+ const line=(extra={})=>JSON.stringify({type:'capture',schema:1,sequence:4,uptime_ms:91234,protocol:'NEC',decoded_hex:'0x20DF10EF',bits:32,address:4,command:8,receiver_pin:15,leading_gap_us:120000,repeat:false,overflow:false,library:'2.9.0',carrier_khz:null,raw_us:[9000,4500,560,560,560,1690,560],capture_id:12,saved:true,...extra});
+ assert.deepEqual(heardSignal(line()),{timings:7,repeat:false,overflow:false,saved:true,reason:''});
+ assert.deepEqual(heardSignal(line({repeat:true,saved:false,capture_id:undefined,save_error:'Repeat frame only.'})),{timings:7,repeat:true,overflow:false,saved:false,reason:'Repeat frame only.'});
+ assert.equal(heardSignal(line({save_error:'x'.repeat(400),saved:false})).reason.length,160);
+ for(const other of ['','ready','{"type":"board","kind":"receiver"}','{"type":"receiver_status","saved":3}','{"type":"capture"','{"type":"capture","raw_us":"9000 4500"}',' {"type":"capture","raw_us":[1,2,3]}',null,42])assert.equal(heardSignal(other),null,String(other));
+ // A long signal arrives in pieces and is still one line: an air conditioner's remote has about two thousand timings.
+ const long=line({raw_us:Array.from({length:2047},(_,i)=>500+i)}),got=[];assert.ok(long.length>8000,'longer than the reader used to hold');
+ const read=lineReader(text=>got.push(text)),bytes=new TextEncoder().encode('{"type":"board","kind":"receiver"}\r\n'+long+'\r\n');
+ for(let i=0;i<bytes.length;i+=700)read(bytes.subarray(i,i+700));
+ assert.equal(got.length,2);assert.equal(heardSignal(got[1]).timings,2047);
+});
 test('a list of board programs is used only when every piece goes to one of the four known places',()=>{
  assert.deepEqual(validPrograms(list()),list());
  const changed=change=>{const copy=list();change(copy);return validPrograms(copy);};

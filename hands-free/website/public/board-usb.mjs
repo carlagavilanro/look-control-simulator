@@ -32,7 +32,9 @@ export function lineReader(onLine){
  return chunk=>{
   rest+=decoder.decode(chunk,{stream:true});let end;
   while((end=rest.indexOf('\n'))>=0){const line=rest.slice(0,end).replace(/\r$/,'');rest=rest.slice(end+1);if(line)onLine(line);}
-  if(rest.length>8000)rest='';
+  // A receiver prints every signal it hears as one line, timings included: a long one (an air
+  // conditioner's remote) runs to some 15,000 characters.
+  if(rest.length>40000)rest='';
  };
 }
 const text=(value,most)=>typeof value==='string'?value.slice(0,most):'';
@@ -46,6 +48,15 @@ export function boardAnswer(line){
   wifi:{set:data.wifi?.set===true,name:text(data.wifi?.name,32),connected:data.wifi?.connected===true},
   link:{linked:data.link?.linked===true,code:/^\d{6}$/.test(code)?code:''},
   saved:typeof data.saved==='boolean'?data.saved:null,message:text(data.message,160)};
+}
+// A signal the receiver's program just heard: it prints each one on the USB line as it happens
+// (the line capture.ps1 reads). null for any other line. `saved` false with a `reason` when the
+// board heard it but did not keep it (a held key's repeat, a signal too long, storage full).
+export function heardSignal(line){
+ if(typeof line!=='string'||!line.startsWith('{"type":"capture"'))return null;
+ let data;try{data=JSON.parse(line);}catch{return null;}
+ if(!data||data.type!=='capture'||!Array.isArray(data.raw_us))return null;
+ return {timings:data.raw_us.length,repeat:data.repeat===true,overflow:data.overflow===true,saved:data.saved===true,reason:text(data.save_error,160)};
 }
 // A board with an older Hands Free program does not answer "hello", but what it prints when it
 // starts says which board it is.

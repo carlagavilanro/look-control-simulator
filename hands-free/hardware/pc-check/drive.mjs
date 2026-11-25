@@ -9,6 +9,7 @@ import {randomBytes} from 'node:crypto';
 const site=new URL('../../website',import.meta.url).pathname;
 const {createCloudServer}=await import(site+'/cloud-server.mjs');
 const {createHub}=await import(site+'/hub.mjs');
+const {heardSignal}=await import(site+'/public/board-usb.mjs');
 const seed=JSON.parse(fs.readFileSync(site+'/fan-signals.json','utf8'));
 const here=path.dirname(new URL(import.meta.url).pathname),port=18811,base='http://127.0.0.1:'+port;
 const credentials={username:'pc-check',password:'pc-check-password-of-32-characters'};
@@ -89,6 +90,9 @@ try{
  shine(first);await r.expect(/"capture_id":1/);shine(second);await r.expect(/"capture_id":2/);
  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(rState,'fs/captures/0000000001.json'),'utf8')).raw_us,first);
  ok('with no network it records and saves exactly as before');
+ // The Boards and Wi-Fi page reads that same line to show "heard a signal" for a plugged-in receiver.
+ assert.deepEqual(heardSignal(r.lines.find(l=>/"capture_id":2/.test(l))),{timings:second.length,repeat:false,overflow:false,saved:true,reason:''});
+ ok('the line it prints for each signal is the one the Boards page shows as heard');
  fs.rmSync(path.join(rState,'wifi-down'));
  const rDevice=await linkBoard(r);await r.expect(/Recording 2 sent to the website/,15000);
  view=(await page('/api/hub')).body;assert.equal(view.recordings.length,2);assert.equal(view.recordings[0].from,'Receiver');
@@ -172,7 +176,7 @@ try{
  const v=board('receiver-unset',vState);
  await v.expect(/"type":"cloud","message":"No Wi-Fi yet\. Open https:\/\/127\.0\.0\.1:18811\/boards/);
  mark=v.mark();v.type('{"hf":"hello"}\n');hello=await said(v,mark);
- assert.deepEqual(hello,{type:'board',kind:'receiver',firmware:'IRCapture-cloud-2',site:'127.0.0.1:18811',wifi:{set:false,name:'',connected:false},link:{linked:false,code:''}});
+ assert.deepEqual(hello,{type:'board',kind:'receiver',firmware:'IRCapture-cloud-3',site:'127.0.0.1:18811',wifi:{set:false,name:'',connected:false},link:{linked:false,code:''}});
  mark=v.mark();v.type(JSON.stringify({hf:'wifi',ssid:wifiName,password:wifiPassword})+'\n');hello=await said(v,mark);
  assert.equal(hello.saved,true);assert.equal(hello.wifi.connected,true);
  await linkBoard(v,mark);
@@ -199,7 +203,7 @@ try{
  const pressed=press([1,1,0,0,1,0,1,1,0,1,0,0],4);fs.appendFileSync(path.join(xState,'ir-in.txt'),pressed.join(' ')+'\n');
  await x.expect(/Recording 1 sent to the website/,20000);
  view=(await page('/api/hub')).body;const xNow=view.devices.find(d=>d.id===xDevice.id);
- assert.equal(xNow.kind,'receiver');assert.match(xNow.name,/^Receiver( \d+)?$/);assert.equal(xNow.firmware,'IRCapture-cloud-2');assert.equal(xNow.online,true);
+ assert.equal(xNow.kind,'receiver');assert.match(xNow.name,/^Receiver( \d+)?$/);assert.equal(xNow.firmware,'IRCapture-cloud-3');assert.equal(xNow.online,true);
  assert.equal(view.devices.filter(d=>d.kind==='receiver').length,receiversBefore+1);assert.equal(view.recordings.length,recordingsBefore+1);
  assert.deepEqual(view.recordings[0].from,xNow.name);
  assert.equal(x.lines.some(l=>/LINK CODE/.test(l)||/answered 403/.test(l)),false,'no new code was needed and nothing was refused');

@@ -23,7 +23,7 @@ The cloud server now includes the device hub (`hub.mjs`): devices and their butt
 - One replica. Login sessions are in memory and expire after 12 hours or a service restart; sign in again after a deploy. Saved calibration stays in this browser, separately from the login session.
 - Disable Serverless sleeping and use an appropriate funded plan to keep the service running. Configure automatic restarts in Railway service settings.
 
-The initial cloud release has one shared website login, not separate registered user accounts. Login uses an HttpOnly, Secure, SameSite cookie. Sign-in attempts are rate limited. The app and MediaPipe files require a session. Login styling/fonts and a minimal health endpoint are public.
+The initial cloud release has one shared website login, not separate registered user accounts. Login uses an HttpOnly, Secure, SameSite cookie. With the volume attached, sign-ins are kept across a restart (an update restarts the site): the volume holds `sessions.json`, with a hash of each session's cookie and when it ends, never the cookie itself. Sign-in attempts are rate limited. The app and MediaPipe files require a session. Login styling/fonts and a minimal health endpoint are public.
 
 ## Scope
 

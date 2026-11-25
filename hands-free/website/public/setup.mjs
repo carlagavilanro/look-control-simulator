@@ -57,7 +57,7 @@ function renderBoards(){
 }
 function renderRecord(a){
  const learning=state.learning?.applianceId===a.id?state.learning:null,learned=state.learned?.applianceId===a.id?state.learned:null;
- if(learning)return h('div',{class:'record'},h('div',{class:'waiting'},h('span',{class:'pulse'}),h('div',{},'Waiting for "'+learning.label+'". Point the remote at the receiver and press that button once.',h('small',{id:'learn-seconds',text:learning.secondsLeft+' seconds left'})),h('button',{type:'button',text:'Stop',onclick:()=>act(()=>call('/api/learn','DELETE'))})));
+ if(learning)return h('div',{class:'record'},h('div',{class:'waiting'},h('span',{class:'pulse'}),h('div',{},learning.partial?'Only part of the signal was heard'+(learning.partialTimings?' ('+learning.partialTimings+' timings)':'')+', so it was not saved. Press "'+learning.label+'" again, with the remote held still and close to the receiver.':'Waiting for "'+learning.label+'". Point the remote at the receiver and press that button once.',h('small',{id:'learn-seconds',text:learning.secondsLeft+' seconds left'})),h('button',{type:'button',text:'Stop',onclick:()=>act(()=>call('/api/learn','DELETE'))})));
  const draft=drafts[a.id]??'',input=h('input',{maxlength:24,placeholder:'Button name, for example On/off',autocomplete:'off',value:draft,'aria-label':'Name of the new button for '+a.name});
  input.oninput=()=>{drafts[a.id]=input.value;};
  const record=label=>{const name=(label??input.value).trim();if(!name){notice('Type a name for the button first, or choose one of the suggestions.',true);input.focus();return;}drafts[a.id]='';act(()=>call('/api/learn','POST',{applianceId:a.id,label:name,icon:iconFor(name,a.kind)}));};
@@ -68,7 +68,11 @@ function renderRecord(a){
   h('label',{text:'Add a button'}),
   missing.length>0&&h('div',{class:'chips',role:'group','aria-label':'Suggested button names'},missing.map(([name])=>h('button',{type:'button',text:name,onclick:()=>record(name)}))),
   h('div',{class:'link-row'},input,h('button',{class:'primary-button',type:'submit',text:'Record this button'})),
-  h('p',{class:'hint',text:'After you press Record, the next button pressed on the remote in front of the receiver is saved under this name.'}));
+  h('p',{class:'hint',text:'After you press Record, the next button pressed on the remote in front of the receiver is saved under this name.'}),
+  // Ready-made buttons, for a remote that cannot be recorded (Samsung's smart remote sends infrared for its power key only).
+  ...(state.ready||[]).filter(r=>r.kind===a.kind).map(r=>h('div',{class:'ready'},
+   h('p',{class:'hint',text:'Nothing arrives when you press the remote\'s keys? Some remotes, Samsung\'s smart remote among them, send only their power key by infrared and the rest by Bluetooth. A '+r.name+' still takes the usual infrared codes, so its buttons can be added ready-made, with nothing to record.'}),
+   h('button',{type:'button',class:'secondary-button',text:'Add the '+r.buttons+' '+r.name+' buttons',onclick:()=>act(()=>call('/api/appliances/'+a.id+'/ready','POST',{set:r.id}))}))));
 }
 function renderAppliances(){
  $('appliance-list').replaceChildren(...(state.appliances.length?state.appliances.map(a=>h('article',{class:'appliance','aria-label':a.name},
@@ -101,7 +105,7 @@ async function refresh(force=false){
  state=fresh;
  const seconds=$('learn-seconds');if(seconds&&state.learning)seconds.textContent=state.learning.secondsLeft+' seconds left';
  // Redraw only when something changed, and never under someone's typing.
- const now=JSON.stringify([state.devices.map(d=>[d.id,d.name,d.online,d.practice,Math.floor((d.seenSecondsAgo??0)/60)]),state.appliances.map(a=>[a.id,a.name,a.careful,a.buttons.map(b=>[b.id,b.label,b.icon,b.timings,b.carrier_khz])]),state.recordings.map(r=>r.id),state.learning?.applianceId,state.learning?.label,state.learned?.at,state.storage]);
+ const now=JSON.stringify([state.devices.map(d=>[d.id,d.name,d.online,d.practice,Math.floor((d.seenSecondsAgo??0)/60)]),state.appliances.map(a=>[a.id,a.name,a.careful,a.buttons.map(b=>[b.id,b.label,b.icon,b.timings,b.carrier_khz])]),state.recordings.map(r=>r.id),state.learning?.applianceId,state.learning?.label,state.learning?.partial,state.learned?.at,state.storage]);
  const typing=document.activeElement?.matches?.('#appliance-list input,#recording-list input,#recording-list select');
  if(now===signature||!force&&typing)return;
  signature=now;renderBoards();renderAppliances();renderRecordings();

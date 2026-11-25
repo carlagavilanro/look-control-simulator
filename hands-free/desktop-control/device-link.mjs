@@ -72,6 +72,8 @@ export function createDeviceLink({site,fetch,store,hostname='',now=Date.now}){
   'remove-device':p=>named('appliances',p?.id,'DELETE'),
   'rename-button':p=>named('buttons',p?.id,'PATCH',{label:text(p?.label,24),...(p?.icon?{icon:text(p.icon,12)}:{})}),
   'remove-button':p=>named('buttons',p?.id,'DELETE'),
+  // Ready-made buttons for a device whose remote cannot be recorded (a Samsung TV's smart remote).
+  ready:p=>/^a_[a-f0-9]{12}$/.test(p?.id||'')?linked('/api/appliances/'+p.id+'/ready','POST',{set:text(p?.set,24)}):Promise.resolve({ok:false,status:0,message:'That device could not be found.'}),
   // Linking: ask for a code, then keep asking whether it has been typed on the website.
   // linked: the app has its key already (the code was typed since the last look).
   async link(){

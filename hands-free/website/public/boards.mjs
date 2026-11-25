@@ -21,6 +21,21 @@ const encoder=new TextEncoder();
 // port: the USB device chosen. board: its last answer to "hello" (null until it answers).
 // older: 'receiver' | 'transmitter' when a program from before "hello" was recognised.
 let port=null,reader=null,reading=null,board=null,older='',answeredAt=0,programs=null,busy=false,waiters=[],joiningSince=0,linkedAs='';
+// site: the linked boards as the website knows them (null until asked). A board only knows that it
+// holds a key. The website knows what that key is for and whether it has heard from the board, so
+// step 4 says what the website sees. (The first real board said "linked" while the website still
+// had it down as the other kind of board, and this page took the board's word for it.)
+let site=null,siteAt=0,siteAsking=false;
+// picked: the person chose "Which board is this?" by hand. Until then the choice follows what the
+// board says it is. A board can be given the other board's program (it was the transmitter and is
+// to be the receiver, or the wrong one was installed): the choice stays open for that.
+let picked=false;
+async function askSite(){
+ if(siteAsking)return;siteAsking=true;
+ try{const got=await fetch('/api/hub');if(got.ok){const body=await got.json();site=Array.isArray(body.devices)?body.devices.filter(d=>d.kind==='receiver'||d.kind==='transmitter'):null;render();}}
+ catch{}
+ finally{siteAt=Date.now();siteAsking=false;}
+}
 
 function note(text,kind=''){const box=$('notice');box.hidden=!text;box.textContent=text;box.className='notice'+(kind?' '+kind:'');}
 function progress(text,percent){$('progress').hidden=false;$('progress-line').textContent=text+(percent?' · '+percent+'%':'');$('progress-bar').value=percent;}
@@ -70,7 +85,7 @@ async function connect(){
  try{
   const chosen=await serial.requestPort();
   await closeLine();
-  port=chosen;board=null;older='';linkedAs='';joiningSince=0;
+  port=chosen;board=null;older='';linkedAs='';joiningSince=0;site=null;siteAt=0;picked=false;
   await openLine();render();
   await greet([300,900,1500]);
  }catch(error){
@@ -78,10 +93,10 @@ async function connect(){
   else{port=reader?port:null;note(/open|in use|NetworkError|InvalidState/i.test(String(error?.name)+error?.message)?'The board could not be opened. Another program may be using it (Arduino\'s Serial Monitor, for one). Close that program and press Connect again.':'The board could not be reached. Unplug it, plug it back in and press Connect.','problem');}
  }finally{busy=false;render();}
 }
-async function disconnect(){if(busy)return;await closeLine();port=null;board=null;older='';note('');render();}
+async function disconnect(){if(busy)return;await closeLine();port=null;board=null;older='';picked=false;note('');render();}
 
 // ---- the program ----------------------------------------------------------------------------------
-const chosenKind=()=>board?.kind||document.querySelector('input[name=kind]:checked')?.value||'';
+const chosenKind=()=>document.querySelector('input[name=kind]:checked')?.value||board?.kind||'';
 async function install(){
  if(busy||!port)return;
  const kind=chosenKind();
@@ -116,10 +131,10 @@ async function install(){
   await loader.after('hard_reset');
   await transport.disconnect();transport=null;
   await pause(1200);
-  board=null;older='';
+  board=null;older='';picked=false;
   await openLine();
   await greet([600,1000,1500,2000,2500]);
-  if(board)note('The program is on the board. Next: its Wi-Fi.');
+  if(board)note(board.wifi.set?'The program is on the board. Its Wi-Fi'+(board.link.linked?' and its link were':' was')+' kept.':'The program is on the board. Next: its Wi-Fi.');
   else note('The program was written, but the board has not answered yet. Unplug it, plug it back in and press Connect.','warning');
  }catch(error){
   try{await transport?.disconnect();}catch{}
@@ -168,7 +183,7 @@ async function link(){
  busy=true;render();
  try{
   const sent=await fetch('/api/pair/approve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})}),body=await sent.json().catch(()=>({}));
-  if(sent.ok){linkedAs=body.device?.name||BOARDS[board.kind];note('Linked as '+linkedAs+'. The board takes a few seconds to say so.');}
+  if(sent.ok){linkedAs=body.device?.name||BOARDS[board.kind];siteAt=0;note('Linked as '+linkedAs+'. The board takes a few seconds to say so.');}
   else note(body.message||'The website did not accept the code. Wait for the board to show a new one.','problem');
  }catch{note('The website could not be reached. Check this computer\'s internet and try again.','problem');}
  finally{busy=false;render();}
@@ -185,14 +200,20 @@ function render(){
   :board?'Program '+board.firmware+(board.wifi.connected?' · on Wi-Fi "'+board.wifi.name+'"':board.wifi.set?' · joining "'+board.wifi.name+'"':' · no Wi-Fi yet')+(board.link.linked?' · linked':'')
   :older?'It was set up before Wi-Fi could be changed from this page. Update its program in step 2.':'It may be new, or hold another program. Install the program in step 2.';
  // 2. program
- $('program-block').hidden=!port;$('program-block').dataset.done=String(!!board&&state==='same');
- $('kind-choice').hidden=!!board;
- if(older&&!document.querySelector('input[name=kind]:checked'))document.querySelector('input[name=kind][value='+older+']').checked=true;
+ $('program-block').hidden=!port;
+ // The choice follows the board until the person chooses by hand; it stays open so a board can be
+ // given the other board's program.
+ const is=board?.kind||older;
+ if(!picked&&is){const radio=document.querySelector('input[name=kind][value='+is+']');if(radio&&!radio.checked)radio.checked=true;}
+ const want=chosenKind(),other=!!board&&!!want&&want!==board.kind,low=kind=>BOARDS[kind].toLowerCase();
+ $('kind-legend').textContent=board?'This board is the '+low(board.kind)+'. To make it the '+low(board.kind==='receiver'?'transmitter':'receiver')+' instead, choose that here.':'Which board is this?';
+ $('program-block').dataset.done=String(!!board&&state==='same'&&!other);
  $('program-line').textContent=!programs?'The board programs could not be fetched from the website just now. Reload the page in a minute.'
+  :other?'This board has the '+low(board.kind)+'\'s program. Installing makes it the '+low(want)+': its Wi-Fi and its link are kept, and the website lists it as the '+low(want)+' from then on.'
   :board?(state==='same'?'This board has the current program.':'A newer program is ready for this board.')
   :older?'Update this board\'s program to set its Wi-Fi from here.':'Choose the board, then install its program.';
- $('install').textContent=board?(state==='same'?'Install it again':'Update the program'):older?'Update the program':'Install the program';
- $('install').className=board&&state==='same'?'secondary-button':'primary-button';$('install').disabled=busy||!programs;
+ $('install').textContent=other?'Install the '+low(want)+'\'s program':board?(state==='same'?'Install it again':'Update the program'):older?'Update the program':'Install the program';
+ $('install').className=board&&state==='same'&&!other?'secondary-button':'primary-button';$('install').disabled=busy||!programs;
  // 3. Wi-Fi
  $('wifi-block').hidden=!board;$('wifi-block').dataset.done=String(!!board?.wifi.connected);
  if(board){
@@ -206,10 +227,16 @@ function render(){
  }
  for(const control of $('wifi-form').querySelectorAll('button'))control.disabled=busy;
  // 4. link
- $('link-block').hidden=!board;$('link-block').dataset.done=String(!!board?.link.linked);
+ // What the website has for this kind of board: one it hears from now, else one it knows of.
+ const known=board&&site?site.filter(d=>d.kind===board.kind):[],seen=known.find(d=>d.online)||known[0]||null;
+ $('link-block').hidden=!board;$('link-block').dataset.done=String(!!board?.link.linked&&(!site||!!seen?.online));
  if(board){
   const elsewhere=board.site&&board.site!==location.host;
-  $('link-line').textContent=board.link.linked?'Linked to your devices'+(linkedAs?' as '+linkedAs:'')+'. It is in the list on the Setup page.'
+  $('link-line').textContent=board.link.linked?(
+    !site?'Linked to your devices'+(linkedAs?' as '+linkedAs:'')+'. Checking that the website hears it…'
+    :seen?.online?'Linked, and the website hears it: "'+seen.name+'" is online. It is in the list on the Setup page.'
+    :seen?'Linked as "'+seen.name+'", but the website has not heard from it in the last half minute. It reaches the website over Wi-Fi: check step 3, then give it a minute.'
+    :'This board holds a link, but the website has no '+BOARDS[board.kind].toLowerCase()+' in its list yet. That is put right the next time the board reaches the website, within a minute. If it stays like this, check the Wi-Fi in step 3.')
    :elsewhere?'This board\'s program talks to '+board.site+', not to this website, so it cannot be linked here.'
    :board.link.code?'The board is ready to link. Its code is '+board.link.code.slice(0,3)+' '+board.link.code.slice(3)+'.'
    :board.wifi.connected?'The board is asking the website for a link code. This takes a few seconds.':'The board links once it is on Wi-Fi (step 3).';
@@ -219,12 +246,13 @@ function render(){
 
 $('connect').onclick=connect;$('disconnect').onclick=disconnect;$('install').onclick=install;$('wifi-form').onsubmit=saveWifi;$('wifi-forget').onclick=forgetWifi;$('link').onclick=link;
 $('wifi-show').onchange=()=>{$('wifi-password').type=$('wifi-show').checked?'text':'password';};
-for(const choice of document.querySelectorAll('input[name=kind]'))choice.onchange=render;
-serial?.addEventListener?.('disconnect',async event=>{if(port&&(event.target===port||event.port===port)&&!busy){await closeLine();port=null;board=null;older='';note('The board was unplugged.');render();}});
+for(const choice of document.querySelectorAll('input[name=kind]'))choice.onchange=()=>{picked=true;render();};
+serial?.addEventListener?.('disconnect',async event=>{if(port&&(event.target===port||event.port===port)&&!busy){await closeLine();port=null;board=null;older='';picked=false;note('The board was unplugged.');render();}});
 // The board is asked how it is doing every two seconds. One that stops answering is shown as such.
 setInterval(()=>{
  if(busy||!reader)return;
  if(board&&Date.now()-answeredAt>9000){board=null;render();}
+ if(board?.link.linked&&Date.now()-siteAt>4000)askSite();
  send(HELLO).catch(()=>{});
 },2000);
 try{const got=await fetch('/firmware/board-programs.json');programs=got.ok?validPrograms(await got.json()):null;}catch{programs=null;}

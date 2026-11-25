@@ -24,6 +24,9 @@ export const LIMITS=Object.freeze({appliances:24,buttons:32,recordings:300,devic
 export const KINDS=Object.freeze(['fan','tv','heater','light','other']);
 export const ICONS=Object.freeze(['power','minus','plus','up','down','left','right','ok','mode','silence','turn','timer','input','light','heat','fan','tv','dot']);
 const DEVICE_KINDS=['receiver','transmitter','app'];
+const BOARD_NAMES={receiver:'Receiver',transmitter:'Transmitter'};
+// Which board a program is for, from the name it gives itself (IRCapture-cloud-2, IRTransmitter-cloud-2).
+const programKind=firmware=>/^IRCapture(?![A-Za-z0-9])/.test(firmware)?'receiver':/^IRTransmitter(?![A-Za-z0-9])/.test(firmware)?'transmitter':null;
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const id=prefix=>prefix+'_'+randomBytes(6).toString('hex');
 // A picture for a button from its name, when none was chosen.
@@ -110,14 +113,42 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
   if(!p)return {status:404,body:{message:'No board or app is showing that code right now. Check the six digits; a code lasts ten minutes.'}};
   if(data.devices.length>=LIMITS.devices)return {status:409,body:{message:'Remove a linked board or app before adding another.'}};
   const token=randomBytes(32).toString('base64url');
-  const fallback={receiver:'Receiver',transmitter:'Transmitter',app:'Windows app'}[p.kind],taken=new Set(data.devices.map(d=>d.name));
+  const fallback={...BOARD_NAMES,app:'Windows app'}[p.kind],taken=new Set(data.devices.map(d=>d.name));
   let chosen=clean(name,LIMITS.name)||p.name||fallback;for(let n=2;taken.has(chosen);n++)chosen=(clean(name,LIMITS.name)||p.name||fallback)+' '+n;
   const device={id:id('d'),kind:p.kind,name:chosen,firmware:p.firmware,tokenHash:sha(token),createdAt:now()};
   data.devices.push(device);index();await save();
   p.token=token;p.device=device;p.until=now()+2*60*1000;
   return {status:200,body:{device:{id:device.id,kind:device.kind,name:device.name}}};
  }
- function authDevice(header){const match=/^Bearer ([A-Za-z0-9_-]{43})$/.exec(header||'');const device=match&&tokens.get(sha(match[1]));if(device)state(device).lastSeen=now();return device||null;}
+ // A board keeps its key when another program is installed on it (installing leaves the saved link
+ // alone). A board that was linked as the transmitter and now runs the receiver's program IS the
+ // receiver from then on, and the other way round: its entry follows the program it says it runs.
+ // (At first the entry kept the kind it was linked as. The first real board had been the transmitter
+ // and got the receiver's program: it said "linked", the website went on listing a transmitter,
+ // refused every recording the board sent with 403, and told the pages no receiver was linked.)
+ // `firmware` is the board's X-Firmware header. Only the two board programs are followed, and only
+ // between the two board kinds: the Windows app's key never becomes a board's.
+ function follow(device,firmware){
+  const name=clean(firmware,48),runs=programKind(name);
+  if(!runs||device.kind==='app'||(device.kind===runs&&device.firmware===name))return;
+  if(device.kind!==runs){
+   const s=live.get(device.id);s?.waiter?.finish(null);live.delete(device.id);
+   // A name the website chose ("Transmitter", "Transmitter 2") changes with it; one a person typed stays.
+   if(new RegExp('^'+BOARD_NAMES[device.kind]+'( \\d+)?$').test(device.name)){
+    const taken=new Set(data.devices.filter(d=>d!==device).map(d=>d.name));
+    let chosen=BOARD_NAMES[runs];for(let n=2;taken.has(chosen);n++)chosen=BOARD_NAMES[runs]+' '+n;
+    device.name=chosen;
+   }
+   device.kind=runs;
+  }
+  device.firmware=name;save();
+ }
+ function authDevice(header,firmware){
+  const match=/^Bearer ([A-Za-z0-9_-]{43})$/.exec(header||''),device=match&&tokens.get(sha(match[1]));
+  if(!device)return null;
+  if(firmware!==undefined)follow(device,firmware);
+  state(device).lastSeen=now();return device;
+ }
  async function removeDevice(deviceId){
   const device=data.devices.find(d=>d.id===deviceId);if(!device)return {status:404,body:{message:'Not found.'}};
   const s=state(device);s.waiter?.finish(null);live.delete(device.id);

@@ -47,8 +47,8 @@ void handleCommand(){
 }
 void setup(){
   Serial.begin(115200);delay(500);transmitter.begin();beginSignalStorage();
-  WiFi.mode(WIFI_STA);WiFi.setAutoReconnect(true);
-  if(!String(WIFI_SSID).startsWith("CHANGE_ME"))WiFi.begin(WIFI_SSID,WIFI_PASSWORD);
+  // The Wi-Fi set from the website's Boards and Wi-Fi page, or else the one in Config.h.
+  cloud::loadWifi();cloud::joinWifi();
   const char* headers[]={"X-Control-Token","Origin"};server.collectHeaders(headers,2);
   server.on("/",HTTP_GET,[]{server.sendHeader("X-Frame-Options","DENY");server.sendHeader("Cache-Control","no-store");server.send_P(200,"text/html",WEB_PAGE);});
   server.on("/api/status",HTTP_GET,[]{JsonDocument doc;doc["practice"]=PRACTICE_MODE;doc["signalsReady"]=signalsReady;doc["storageReady"]=storageReady;doc["signalCount"]=signals.size();doc["signalFileApi"]=1;JsonArray names=doc["commands"].to<JsonArray>();if(signalsReady)for(const auto& item:signals)names.add(item.name);String text;serializeJson(doc,text);server.sendHeader("Cache-Control","no-store");server.send(200,"application/json",text);});
@@ -67,6 +67,6 @@ void loop(){
   if(connected&&!wasConnected){Serial.print("Transmitter and signal-file upload: http://");Serial.println(WiFi.localIP());}
   if(!connected&&wasConnected)Serial.println("Wi-Fi disconnected; website commands unavailable.");
   wasConnected=connected;
-  if(connected)server.handleClient();else if(millis()-lastReconnectAt>15000&&!String(WIFI_SSID).startsWith("CHANGE_ME")){lastReconnectAt=millis();WiFi.reconnect();}
+  if(connected)server.handleClient();else if(millis()-lastReconnectAt>15000&&cloud::wifiConfigured()){lastReconnectAt=millis();WiFi.reconnect();}
   delay(2);
 }

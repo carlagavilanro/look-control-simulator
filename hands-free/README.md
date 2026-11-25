@@ -1,6 +1,6 @@
 # Hands Free
 
-Current Windows companion: **0.4.42**.
+Current Windows companion: **0.4.43**.
 
 Hands Free combines local camera-based eye control, a Windows desktop companion,
 and separate ESP32 infrared receiver/transmitter firmware. The complete source,
@@ -78,9 +78,17 @@ GitHub does not itself deploy the site or connect a cloud server to home hardwar
 See [the firmware guide](hardware/README.md) and
 [automatic capture](hardware/AUTO-CAPTURE.md): receiver input is GPIO 15 and
 transmitter output is GPIO 4. The receiver stores captures in its flash; the
-transmitter replays its own uploaded signal library. Configuration headers contain
-example credentials and the transmitter defaults to practice mode. Do not commit
-real Wi-Fi credentials, access tokens or personal capture logs.
+transmitter replays its own uploaded signal library and sends what the website
+asks for. Configuration headers contain placeholders only. Do not commit real
+Wi-Fi credentials, access tokens or personal capture logs.
+
+Nobody needs Arduino IDE at home: the website's **Boards and Wi-Fi** page
+(`/boards`, in Chrome or Edge on a computer) installs the program on a board over
+USB, gives it its Wi-Fi name and password, and links it. The build attaches the
+board programs to each release, and the site serves them from there. Devices and
+buttons are added, tried, recorded again, renamed and removed on the website's
+Setup page and, with the same names and pictures, in the Windows app under
+**Use saved devices → Set up a device**.
 
 ## Tests
 

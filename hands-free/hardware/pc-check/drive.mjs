@@ -123,6 +123,62 @@ try{
  await linkBoard(r,mark);await r.expect(/Recording 2 sent to the website/,15000,mark);
  ok('removed on the Setup page, it asks for a new code; linked again, it sends what it recorded meanwhile');
  await r.stop();await t.stop();
+
+ // ---------------- Wi-Fi over the USB line (the website's Boards and Wi-Fi page) ----------------
+ // These builds have no Wi-Fi in Config.h, as the published board programs have none.
+ console.log('Wi-Fi over USB');
+ const said=(b,from)=>b.expect(/"type":"board"/,4000,from).then(JSON.parse);
+ const wifiName='Home 7421 network',wifiPassword='pass 1234567 word';   // digits on purpose: 1 to 7 are fan test keys
+ const uState=fs.mkdtempSync(path.join(os.tmpdir(),'hf-transmitter-unset-'));
+ let u=board('transmitter-unset',uState);
+ await u.expect(/WEBSITE: No Wi-Fi yet\. Open https:\/\/127\.0\.0\.1:18811\/boards/);
+ mark=u.mark();u.type('{"hf":"hello"}\n');let hello=await said(u,mark);
+ assert.deepEqual(hello,{type:'board',kind:'transmitter',firmware:'IRTransmitter-cloud-2',site:'127.0.0.1:18811',wifi:{set:false,name:'',connected:false},link:{linked:false,code:''}});
+ ok('a transmitter with no Wi-Fi says so, and answers "hello" on the USB line with what it is');
+ mark=u.mark();u.type(JSON.stringify({hf:'wifi',ssid:'x'.repeat(33),password:wifiPassword})+'\n');hello=await said(u,mark);
+ assert.equal(hello.saved,false);assert.match(hello.message,/1 to 32 characters/);
+ mark=u.mark();u.type(JSON.stringify({hf:'wifi',ssid:wifiName,password:'short'})+'\n');hello=await said(u,mark);
+ assert.equal(hello.saved,false);assert.match(hello.message,/8 to 63 characters/);assert.equal(hello.wifi.set,false);
+ assert.equal(fs.existsSync(path.join(uState,'wifi-joined')),false);
+ ok('a Wi-Fi name or password that cannot be right is refused, and nothing is joined');
+ mark=u.mark();u.type(JSON.stringify({hf:'wifi',ssid:wifiName,password:wifiPassword})+'\n');hello=await said(u,mark);
+ assert.equal(hello.saved,true);assert.deepEqual(hello.wifi,{set:true,name:wifiName,connected:true});
+ assert.equal(fs.readFileSync(path.join(uState,'wifi-joined'),'utf8'),wifiName+'\n'+wifiPassword+'\n');
+ await pause(1200);
+ assert.equal(u.lines.some(l=>/IRSEND|SENT:|Practice only/.test(l)),false,'no infrared from the digits in the name or password');
+ assert.equal(u.lines.some(l=>l.includes(wifiPassword)||l.includes('1234567')),false,'the password is never printed');
+ ok('Wi-Fi typed over USB is joined at once; its digits send no fan command; the password is never printed');
+ const uCode=(await u.expect(/LINK CODE \d{3} \d{3}/,20000,mark)).match(/LINK CODE (\d{3}) (\d{3})/).slice(1).join('');
+ mark=u.mark();u.type('{"hf":"hello"}\n');hello=await said(u,mark);assert.deepEqual(hello.link,{linked:false,code:uCode});
+ assert.equal((await page('/api/pair/approve','POST',{code:uCode})).status,200);await u.expect(/Linked to 127\.0\.0\.1:18811 as/,15000);
+ mark=u.mark();u.type('{"hf":"hello"}\n');hello=await said(u,mark);assert.deepEqual(hello.link,{linked:true,code:''});
+ ok('"hello" then carries the link code, and says linked once the code is typed on the site');
+ mark=u.mark();u.type('12345\n');await u.expect(/Send ONE number \(1-7\)\. Nothing was sent\./,2000,mark);
+ u.type('{"hf":"dance"}\n');assert.equal((await said(u,mark)).message,'Unknown request.');
+ u.type('{not json}\n');await u.expect(/That request was not understood\. Nothing was sent\./,2000,mark);await pause(300);
+ assert.equal(u.lines.some(l=>/IRSEND/.test(l)),false);
+ mark=u.mark();await pause(900);u.type('2\n');await u.expect(/^IRSEND /,3000,mark);await u.expect(/SENT: Speed down/,2000,mark);
+ ok('several keys at once, or a line that is not a request, send nothing; one key still sends its fan test');
+ await u.stop();u=board('transmitter-unset',uState);await u.expect(/WEBSITE: Linked to 127\.0\.0\.1:18811\./);
+ assert.equal(fs.readFileSync(path.join(uState,'wifi-joined'),'utf8'),wifiName+'\n'+wifiPassword+'\n');await pause(1500);
+ assert.equal(u.lines.some(l=>/LINK CODE/.test(l)||l.includes(wifiPassword)),false);
+ view=(await page('/api/hub')).body;assert.equal(view.transmitter.online,true);
+ ok('after a restart it joins the saved Wi-Fi by itself and is still linked');
+ mark=u.mark();u.type('{"hf":"forget-wifi"}\n');hello=await said(u,mark);assert.deepEqual(hello.wifi,{set:false,name:'',connected:false});
+ assert.equal(fs.readFileSync(path.join(uState,'prefs-hf-wifi.txt'),'utf8').includes(wifiPassword),false);
+ ok('"forget-wifi" takes the name and password out of the board');
+ await u.stop();
+ const vState=fs.mkdtempSync(path.join(os.tmpdir(),'hf-receiver-unset-'));fs.writeFileSync(path.join(vState,'ir-in.txt'),'');
+ const v=board('receiver-unset',vState);
+ await v.expect(/"type":"cloud","message":"No Wi-Fi yet\. Open https:\/\/127\.0\.0\.1:18811\/boards/);
+ mark=v.mark();v.type('{"hf":"hello"}\n');hello=await said(v,mark);
+ assert.deepEqual(hello,{type:'board',kind:'receiver',firmware:'IRCapture-cloud-2',site:'127.0.0.1:18811',wifi:{set:false,name:'',connected:false},link:{linked:false,code:''}});
+ mark=v.mark();v.type(JSON.stringify({hf:'wifi',ssid:wifiName,password:wifiPassword})+'\n');hello=await said(v,mark);
+ assert.equal(hello.saved,true);assert.equal(hello.wifi.connected,true);
+ await linkBoard(v,mark);
+ for(const line of v.lines){assert.doesNotThrow(()=>JSON.parse(line),line);assert.equal(line.includes(wifiPassword),false);}
+ ok('the receiver takes Wi-Fi over USB the same way, links, and still prints nothing but JSON');
+ await v.stop();
  console.log('\n'+passed+' checks passed');
 }catch(error){console.error('\nFAILED: '+error.message);process.exitCode=1;}
 finally{server.closeAllConnections();server.close();setTimeout(()=>process.exit(process.exitCode||0),200);}

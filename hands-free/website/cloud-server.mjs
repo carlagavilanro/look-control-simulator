@@ -5,13 +5,14 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash, randomBytes, timingSafeEqual} from 'node:crypto';
 import {createHub} from './hub.mjs';
+import {validPrograms} from './public/board-usb.mjs';
 
 const root=path.dirname(fileURLToPath(import.meta.url));
 const digest=value=>createHash('sha256').update(value).digest();
 const equal=(a,b)=>timingSafeEqual(digest(a),digest(b));
 const lifetime=12*60*60*1000;
 const mime={'.html':'text/html; charset=utf-8','.json':'application/json','.mjs':'text/javascript','.js':'text/javascript','.css':'text/css','.wasm':'application/wasm','.task':'application/octet-stream','.ttf':'font/ttf','.txt':'text/plain'};
-const files={'/screen-eye-crop.mjs':'screen-eye-crop.mjs','/screen-iris-detail.mjs':'screen-iris-detail.mjs','/screen-face-detail.mjs':'screen-face-detail.mjs','/screen-typing.mjs':'screen-typing.mjs','/screen-camera.mjs':'screen-camera.mjs','/screen':'screen.html','/screen.html':'screen.html','/screen.css':'screen.css','/screen-app.mjs':'screen-app.mjs','/screen-positions.mjs':'screen-positions.mjs','/screen-targets.mjs':'screen-targets.mjs','/screen-gaze.mjs':'screen-gaze.mjs','/screen-worker.mjs':'screen-worker.mjs','/screen-eye-overlay.mjs':'screen-eye-overlay.mjs','/':'index.html','/app.mjs':'app.mjs','/cloud-mode.mjs':'cloud-mode.mjs','/eye-selection.mjs':'eye-selection.mjs','/vision-worker.mjs':'vision-worker.mjs','/style.css':'style.css','/setup':'setup.html','/setup.html':'setup.html','/setup.mjs':'setup.mjs','/setup.css':'setup.css','/screen-site.mjs':'screen-site.mjs','/screen-profile.mjs':'screen-profile.mjs'};
+const files={'/screen-eye-crop.mjs':'screen-eye-crop.mjs','/screen-iris-detail.mjs':'screen-iris-detail.mjs','/screen-face-detail.mjs':'screen-face-detail.mjs','/screen-typing.mjs':'screen-typing.mjs','/screen-camera.mjs':'screen-camera.mjs','/screen':'screen.html','/screen.html':'screen.html','/screen.css':'screen.css','/screen-app.mjs':'screen-app.mjs','/screen-positions.mjs':'screen-positions.mjs','/screen-targets.mjs':'screen-targets.mjs','/screen-gaze.mjs':'screen-gaze.mjs','/screen-worker.mjs':'screen-worker.mjs','/screen-eye-overlay.mjs':'screen-eye-overlay.mjs','/':'index.html','/app.mjs':'app.mjs','/cloud-mode.mjs':'cloud-mode.mjs','/eye-selection.mjs':'eye-selection.mjs','/vision-worker.mjs':'vision-worker.mjs','/style.css':'style.css','/setup':'setup.html','/setup.html':'setup.html','/setup.mjs':'setup.mjs','/setup.css':'setup.css','/screen-site.mjs':'screen-site.mjs','/screen-devices.mjs':'screen-devices.mjs','/boards':'boards.html','/boards.html':'boards.html','/boards.mjs':'boards.mjs','/boards.css':'boards.css','/board-usb.mjs':'board-usb.mjs','/screen-profile.mjs':'screen-profile.mjs'};
 // The fan buttons a new site starts with: the seven recordings the transmitter already carries.
 function fanSeed(){try{return JSON.parse(readFileSync(path.join(root,'fan-signals.json'),'utf8'));}catch{return null;}}
 const login=error=>`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in · Hands Free</title><link rel="stylesheet" href="/style.css"><style>body{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px}.login{width:440px;max-width:100%;margin:0;padding:36px;border:1px solid var(--border);border-radius:24px;background:white}.login h1{font-size:36px;letter-spacing:-1.4px;margin:20px 0 12px}.login p{line-height:1.65;color:var(--muted)}.login label{margin-top:20px}.login button{width:100%;margin-top:24px}.login .error{color:#a12d43;font-weight:700}</style></head><body><main class="login"><a class="wordmark" href="/">Hands Free</a><h1>Sign in</h1><p>Enter your username and password.</p>${error?'<p class="error" role="alert">Incorrect username or password. Please try again.</p>':''}<form action="/login" method="post"><label for="username">Username</label><input id="username" name="username" autocomplete="username" maxlength="100" required autofocus><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="200" required><button class="primary-button" type="submit">Sign in →</button></form><p>Your camera stays on your device. No video is uploaded or stored.</p></main></body></html>`;
@@ -19,7 +20,17 @@ const login=error=>`<!doctype html><html lang="en"><head><meta charset="utf-8"><
 // Built from the repository, the site holds no copy of the Windows app (it is far too large to commit).
 // The repository's build publishes it as a release, and the download link is sent there.
 const releaseDownload='https://github.com/carlagavilanro/look-control-simulator/releases/latest/download/Hands-Free-Screen-Control-Windows.zip';
-export function createCloudServer({username,password,secureCookies=true,downloadUrl=releaseDownload,dataDir=null,persistent=false,hub=createHub({dataDir,persistent,seed:fanSeed()})}){
+// The board programs (what the Boards and Wi-Fi page installs over USB) are published on the same
+// release by the build, beside a list of them. A browser page cannot fetch them from there itself,
+// so the site fetches them and hands them on. One file by name, or null when it is not there.
+const releaseFiles='https://github.com/carlagavilanro/look-control-simulator/releases/latest/download/';
+async function fromRelease(name){
+ const got=await fetch(releaseFiles+name,{redirect:'follow',signal:AbortSignal.timeout(25000)});
+ if(!got.ok)return null;
+ const data=Buffer.from(await got.arrayBuffer());
+ return data.length<=2*1024*1024?data:null;
+}
+export function createCloudServer({username,password,secureCookies=true,downloadUrl=releaseDownload,dataDir=null,persistent=false,hub=createHub({dataDir,persistent,seed:fanSeed()}),boardPrograms=fromRelease,now=Date.now}){
  if(!username||username.length>100||!password||password.length<24)throw Error('Set SITE_USERNAME and a random SITE_PASSWORD of at least 24 characters before cloud startup.');
  const sessions=new Map(),attempts=new Map();
  const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data));};
@@ -50,25 +61,55 @@ export function createCloudServer({username,password,secureCookies=true,download
   const route=req.method+' '+url.pathname,part=url.pathname.split('/');
   if(route==='GET /api/hub')return json(res,200,hub.view({full:signedIn}));
   if(route==='POST /api/send')return answer(res,await hub.send(await read(req,1024)));
-  // Setting up a device: add it, then record its buttons one by one. Open to the app as well,
-  // so it can be done by eye. Renaming, removing and linking stay with the signed-in website.
+  // Setting up a device: add it, record its buttons one by one, rename them, record one again,
+  // remove one. Open to the linked Windows app as well, so that all of it can be done by eye
+  // there as it can on the Setup page. (Until 0.4.43 the app could add and record only.)
+  // Linking, the boards and apps themselves, and the list of recordings stay with the
+  // signed-in website.
   if(route==='POST /api/appliances')return answer(res,await hub.addAppliance(await read(req,1024)));
   if(route==='POST /api/learn')return answer(res,hub.startLearning(await read(req,1024)));
   if(route==='DELETE /api/learn')return answer(res,hub.stopLearning());
-  if(!signedIn)return json(res,403,{message:'Sign in on the website to change this.'});
-  if(route==='POST /api/pair/approve'){const body=await read(req,1024);return answer(res,await hub.pairApprove(body.code,body.name));}
-  if(part.length===4&&part[3]){
+  if(part.length===4&&part[3]&&(part[2]==='appliances'||part[2]==='buttons')){
    const target=decodeURIComponent(part[3]);
    if(part[2]==='appliances'&&req.method==='PATCH')return answer(res,await hub.changeAppliance(target,await read(req,1024)));
    if(part[2]==='appliances'&&req.method==='DELETE')return answer(res,await hub.removeAppliance(target));
    if(part[2]==='buttons'&&req.method==='PATCH')return answer(res,await hub.changeButton(target,await read(req,1024)));
    if(part[2]==='buttons'&&req.method==='DELETE')return answer(res,await hub.removeButton(target));
+  }
+  if(!signedIn)return json(res,403,{message:'Sign in on the website to change this.'});
+  if(route==='POST /api/pair/approve'){const body=await read(req,1024);return answer(res,await hub.pairApprove(body.code,body.name));}
+  if(part.length===4&&part[3]){
+   const target=decodeURIComponent(part[3]);
    if(part[2]==='recordings'&&req.method==='DELETE')return answer(res,await hub.removeRecording(target));
    if(part[2]==='devices'&&req.method==='PATCH')return answer(res,await hub.renameDevice(target,(await read(req,1024)).name));
    if(part[2]==='devices'&&req.method==='DELETE')return answer(res,await hub.removeDevice(target));
   }
   if(part.length===5&&part[2]==='appliances'&&part[4]==='buttons'&&req.method==='POST'){const body=await read(req,1024);return answer(res,await hub.addButton(decodeURIComponent(part[3]),{label:body.label,icon:body.icon,carrier_khz:body.carrier_khz,recordingId:body.recording_id}));}
   return json(res,404,{message:'Not found.'});
+ }
+ // ---- the board programs ----------------------------------------------------------------------
+ // The list is looked at again every five minutes; a file is fetched once for each version and
+ // checked against the list (size and MD5) before it is handed to a page. When the release
+ // cannot be reached, the last good list and files stay on offer.
+ const programs={list:null,at:0,files:new Map(),loading:null};
+ function programList(){
+  if(programs.list&&now()-programs.at<5*60*1000)return Promise.resolve(programs.list);
+  return programs.loading??=(async()=>{
+   try{
+    const data=await boardPrograms('board-programs.json'),list=data?validPrograms(JSON.parse(data.toString('utf8'))):null;
+    if(list){if(list.version!==programs.list?.version||list.commit!==programs.list?.commit)programs.files.clear();programs.list=list;}
+   }catch{}
+   programs.at=now();
+   return programs.list;
+  })().finally(()=>{programs.loading=null;});
+ }
+ async function programFile(name){
+  const list=await programList(),part=list&&Object.values(list.boards).flatMap(board=>board.parts).find(p=>p.file===name);
+  if(!part)return null;
+  if(programs.files.has(name))return programs.files.get(name);
+  const data=await boardPrograms(name).catch(()=>null);
+  if(!data||data.length!==part.size||createHash('md5').update(data).digest('hex')!==part.md5)return null;
+  programs.files.set(name,data);return data;
  }
  function session(req){const token=/(?:^|;\s*)look_session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie||'')?.[1];return token&&sessions.get(token)>Date.now()?token:null;}
  const server=http.createServer(async(req,res)=>{
@@ -133,8 +174,17 @@ export function createCloudServer({username,password,secureCookies=true,download
     res.writeHead(200,{'Content-Type':'application/zip','Content-Length':stat.size,'Content-Disposition':'attachment; filename="Hands-Free-Screen-Control-Windows.zip"'});
     if(req.method==='HEAD')res.end();else{const stream=createReadStream(zip);stream.on('error',()=>res.destroy());res.on('close',()=>stream.destroy());stream.pipe(res);}return;
    }
+   if(url.pathname.startsWith('/firmware/')&&req.method==='GET'){
+    const name=url.pathname.slice('/firmware/'.length);
+    if(name==='board-programs.json'){const list=await programList();return list?json(res,200,list):json(res,503,{message:'The board programs are not published yet. Try again in a few minutes.'});}
+    const data=/^[a-z0-9_.]{1,60}\.bin$/.test(name)?await programFile(name):null;
+    if(!data)return json(res,404,{message:'That board program is not available.'});
+    res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Length':data.length});return res.end(data);
+   }
    let file=files[url.pathname];
    if(!file&&/^\/vendor\/[a-zA-Z0-9_.-]+$/.test(url.pathname))file=url.pathname.slice(1);
+   // The flashing tool for the Boards and Wi-Fi page keeps its own folders (see its README.txt).
+   if(!file&&/^\/vendor\/esptool\/(?:[a-zA-Z0-9_-]+\/){0,2}[a-zA-Z0-9_-]+(?:\.esm)?\.(?:js|mjs|json)$/.test(url.pathname))file=url.pathname.slice(1);
    if(!file||!['GET','HEAD'].includes(req.method))return json(res,404,{message:'Not found.'});
    let content=await fs.readFile(path.join(root,'public',file));
    if(file==='index.html')content=Buffer.from(content.toString().replace('src="/app.mjs"','src="/cloud-mode.mjs"'));

@@ -60,11 +60,38 @@ void sendFanTest(size_t index) {
   Serial.printf(" | %u kHz. Check the fan response.\n", selected->carrier);
 }
 
+// The USB line. One key (1-7, H or ?) is a fan test. A line that starts with { is a request from
+// the website's "Boards and Wi-Fi" page (CloudLink.h) and is never read as keys: a Wi-Fi name
+// or password may well hold the digits 1 to 7, and until this version every one of those digits
+// would have sent a fan command. Anything else longer than one key is ignored, for the same reason.
+namespace cloud { bool usbCommand(const String& text, const char* kind); }
+String usbLine;
+uint32_t usbLineAt = 0;
+bool usbLineTooLong = false;
+
+void finishUsbLine() {
+  usbLine.trim();
+  if (usbLineTooLong) Serial.println("That line was too long. Nothing was sent.");
+  else if (usbLine.startsWith("{")) { if (!cloud::usbCommand(usbLine, "transmitter")) Serial.println("That request was not understood. Nothing was sent."); }
+  else if (usbLine.length() == 1) {
+    const char key = usbLine[0];
+    if (key >= '1' && key <= '7') sendFanTest(static_cast<size_t>(key-'1'));
+    else if (key == '?' || key == 'h' || key == 'H') printFanTestMenu();
+  } else if (usbLine.length()) Serial.println("Send ONE number (1-7). Nothing was sent.");
+  usbLine = ""; usbLineTooLong = false;
+}
+
 void handleSerialFanTest() {
   while (Serial.available()) {
     const char key=static_cast<char>(Serial.read());
-    if (key >= '1' && key <= '7') sendFanTest(static_cast<size_t>(key-'1'));
-    else if (key == '?' || key == 'h' || key == 'H') printFanTestMenu();
-    // Both CR and LF are ignored; any Serial Monitor line-ending setting works.
+    // CR and LF both end a line; any Serial Monitor line-ending setting works.
+    if (key == '\n' || key == '\r') { finishUsbLine(); continue; }
+    if (usbLine.length() < 400) usbLine += key; else usbLineTooLong = true;
+    usbLineAt = millis();
   }
+  if (!usbLine.length()) return;
+  // One key sent with no line ending (the Serial Monitor's "No line ending" setting).
+  if (!usbLine.startsWith("{") && millis() - usbLineAt > 80) finishUsbLine();
+  // A request that never ended is dropped after two seconds.
+  else if (millis() - usbLineAt > 2000) { usbLine = ""; usbLineTooLong = false; }
 }

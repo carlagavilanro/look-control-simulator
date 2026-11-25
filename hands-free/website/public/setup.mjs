@@ -1,17 +1,12 @@
 // Set up a device: add a device, add a button, record it with the receiver board, name it.
 // Also: link the boards and the Windows app, and look after the list of recordings.
+import {SUGGESTIONS,buttonIcon,learnedWarning} from './screen-devices.mjs';
 const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
 // Shown inside Screen control (to be used with the eye pointer): the side bar and sign-out are left out.
 if(window.top!==window.self)document.documentElement.classList.add('embedded');
 const kindNames={fan:'Fan',tv:'TV',heater:'Heater',light:'Light',other:'Other'},kindIcon={fan:'fan',tv:'tv',heater:'heat',light:'light',other:'dot'};
 // Button names offered for each kind of device, with the picture that goes with each.
-const suggestions={
- fan:[['On/off','power'],['Speed up','plus'],['Speed down','minus'],['Mode','mode'],['Turn','turn'],['Timer','timer'],['Silence','silence']],
- tv:[['On/off','power'],['Volume up','plus'],['Volume down','minus'],['Mute','silence'],['Channel up','up'],['Channel down','down'],['Input','input'],['OK','ok'],['Up','up'],['Down','down'],['Left','left'],['Right','right'],['Back','left'],['Home','dot']],
- heater:[['On/off','power'],['Warmer','plus'],['Cooler','minus'],['Mode','mode'],['Timer','timer'],['Turn','turn']],
- light:[['On','light'],['Off','power'],['Brighter','plus'],['Dimmer','minus']],
- other:[['On/off','power'],['On','power'],['Off','power'],['Up','up'],['Down','down'],['Mode','mode']]};
-const iconFor=(label,kind)=>{const text=label.trim().toLowerCase(),all=[...(suggestions[kind]||[]),...Object.values(suggestions).flat()];return all.find(([name])=>name.toLowerCase()===text)?.[1]||(/(^|\W)(on|off|power)(\W|$)/.test(text)?'power':/up|\+|more|warm|bright|loud/.test(text)?'plus':/down|-|less|cool|dim|quiet/.test(text)?'minus':/mute|silen/.test(text)?'silence':/time/.test(text)?'timer':'dot');};
+const suggestions=SUGGESTIONS,iconFor=buttonIcon;
 let state=null,signature='',busy=false,drafts={},noticeTimer=0,editing=null;
 
 function h(tag,props={},...children){
@@ -69,6 +64,7 @@ function renderRecord(a){
  const missing=(suggestions[a.kind]||[]).filter(([name])=>!a.buttons.some(b=>b.label.toLowerCase()===name.toLowerCase())).slice(0,8);
  return h('form',{class:'record',onsubmit:event=>{event.preventDefault();record();}},
   learned&&h('p',{class:'notice',text:'"'+learned.label+'" was recorded and saved ('+learned.timings+' timings). Use Send below to try it.'}),
+  learned&&learnedWarning(learned)&&h('p',{class:'notice warning',text:learnedWarning(learned)}),
   h('label',{text:'Add a button'}),
   missing.length>0&&h('div',{class:'chips',role:'group','aria-label':'Suggested button names'},missing.map(([name])=>h('button',{type:'button',text:name,onclick:()=>record(name)}))),
   h('div',{class:'link-row'},input,h('button',{class:'primary-button',type:'submit',text:'Record this button'})),

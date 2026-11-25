@@ -1,6 +1,6 @@
 # Separate IR receiver and transmitter
 
-**November update: both boards can link to the website.** Flash each board once from a computer. After that it only needs power: it joins Wi-Fi by itself and works with no computer attached. The receiver sends every signal it saves to the website, where it becomes a named button of a device. The transmitter collects the commands chosen on the website or in the Windows app and sends the infrared. Everything below about local saving, USB tools and the local Wi-Fi page still applies.
+**November update: both boards can link to the website, and can be set up from the website with no Arduino IDE.** Put the program and the Wi-Fi on each board once from a computer. After that it only needs power: it joins Wi-Fi by itself and works with no computer attached. The receiver sends every signal it saves to the website, where it becomes a named button of a device. The transmitter collects the commands chosen on the website or in the Windows app and sends the infrared. Everything below about local saving, USB tools and the local Wi-Fi page still applies.
 
 ```text
 Original remote -> receiver ESP32 (GPIO 15) --Wi-Fi--> website (stores devices and buttons)
@@ -12,7 +12,22 @@ appliance <- infrared <- transmitter ESP32 (GPIO 4) <-Wi-Fi-+
 
 ## Linking a board to the website
 
-1. Open the board's `Config.h` and fill in `WIFI_SSID` and `WIFI_PASSWORD` (a 2.4 GHz network). `CLOUD_HOST` is already the website. Do this only on your own computer, and do not share the file afterwards.
+**No Arduino IDE is needed.** The website's **Boards and Wi-Fi** page (`/boards`, also reached from Setup, and from the Windows app under Use saved devices → Set up a device) does all of it over the USB cable, in Chrome or Edge on a computer:
+
+1. **Connect.** Plug the board in with a USB data cable, press Connect and pick its port. The page asks the board what it is; a board with the current program answers with its kind, its Wi-Fi and its link code.
+2. **Program.** Choose Receiver or Transmitter and press Install. The page downloads the program this repository's build made for that board (see below), checks every file's size and MD5, and writes it. Saved recordings, a saved link and saved Wi-Fi are in parts of the flash the page never writes. A board that still has an older program, or none, has to be installed once before the next step works.
+3. **Wi-Fi.** Type the name and password of a 2.4 GHz network and press Save. They go down the cable straight to the board, which keeps them in its own storage and joins at once. They are not sent to the website. The same step changes the Wi-Fi later, for instance after a new router; Forget takes it out of the board.
+4. **Link.** The page shows the board's six-digit code and links it with one press (or type the code on the Setup page).
+
+After that the board only needs power from any USB supply.
+
+How the Wi-Fi gets in: the board reads one line of JSON at 115200 baud, `{"hf":"hello"}`, `{"hf":"wifi","ssid":"...","password":"..."}` or `{"hf":"forget-wifi"}`, and answers with one line of JSON that never contains the password or the board's key. The Wi-Fi is kept in flash (NVS, namespace `hf-wifi`). `Config.h` still works as before for a board flashed from Arduino IDE, and Wi-Fi saved over USB wins over it. On the transmitter the single keys 1 to 7 still run the fan test; a whole line is never taken for one.
+
+Where the programs come from: the build workflow compiles both sketches exactly as they are here (no Wi-Fi in them), `tools/board-programs.mjs` gathers the four files each board needs with a list of sizes and checksums (`board-programs.json`), and they are attached to the release. The website fetches them from the latest release and hands them to the page from its own address (`/firmware/...`).
+
+Flashing from Arduino IDE still works, and is the fallback if the browser cannot reach the board:
+
+1. Open the board's `Config.h` and fill in `WIFI_SSID` and `WIFI_PASSWORD` (a 2.4 GHz network), or leave them and give the Wi-Fi on the Boards and Wi-Fi page afterwards. `CLOUD_HOST` is already the website. Do this only on your own computer, and do not share the file afterwards.
 2. In Arduino IDE install the **ESP32** board package and the libraries **IRremoteESP8266** and **ArduinoJson 7**, choose the board and its port, keep the default partition scheme, and upload. Do not choose "Erase All Flash" for a receiver that holds recordings you want to keep.
 3. Open the Serial Monitor at **115200 baud**. Within about a minute the board prints `LINK CODE 123 456` (the receiver prints it inside a JSON line, and repeats it every 30 seconds).
 4. Sign in on the website, open **Setup**, type the six digits under **Link code** and press **Link**. The board prints `Linked to ...`.
@@ -28,7 +43,7 @@ What each sketch gains, and what it keeps:
 
 Safety on the way: the website hands a command to the transmitter only within six seconds of the request. A command that is not collected in time is dropped and reported as not sent; it is never delivered late.
 
-How this was checked: both sketches are compiled for an ESP32 on every push (see the build workflow), and their logic was run on a PC against the website's real code with stand-ins for Wi-Fi, flash and infrared (`pc-check/`). Neither replaces a test on the boards themselves.
+How this was checked: both sketches are compiled for an ESP32 on every push (see the build workflow), and their logic, including Wi-Fi over USB, was run on a PC against the website's real code with stand-ins for Wi-Fi, flash and infrared (`pc-check/`). The Boards and Wi-Fi page was run in a browser with a stand-in for the USB port and the flasher. Neither replaces a test on the boards themselves: installing a program on a real board from the browser, and the new programs on a real ESP32, have not been tried yet.
 
 **October 6 update: the receiver saves automatically when powered.** It does not need a computer, running script, Wi-Fi or the transmitter to record. See [Automatic capture](AUTO-CAPTURE.md) for downloading and naming stored captures. The live USB workflow below remains available.
 

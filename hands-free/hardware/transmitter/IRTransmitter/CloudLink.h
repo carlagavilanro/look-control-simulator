@@ -14,6 +14,11 @@
 // Everything here runs in its own task, so the main loop (infrared, USB commands) never waits
 // for the network. Text for the Serial Monitor is queued here and printed by the main loop.
 //
+// The Wi-Fi name and password are kept in the board's own flash too. They are set over the USB
+// cable from the website's "Boards and Wi-Fi" page, so a board can be moved to another network
+// without Arduino IDE. WIFI_SSID and WIFI_PASSWORD in Config.h are only where a board flashed
+// from Arduino IDE starts; what was set over USB wins.
+//
 // Needs before it is included:   #define FIRMWARE_NAME "..."
 // Needs from Config.h:           WIFI_SSID, WIFI_PASSWORD, CLOUD_HOST, CLOUD_VERIFY_CERTIFICATE
 #include <Arduino.h>
@@ -42,7 +47,9 @@ bool troubleSaid = false, timeAsked = false;
 WiFiClientSecure secure;
 HTTPClient http;
 
-bool wifiConfigured() { return strlen(WIFI_SSID) > 0 && strncmp(WIFI_SSID, "CHANGE_ME", 9) != 0; }
+// The Wi-Fi in use. Written only by the main loop (setup, and a request on the USB line).
+char wifiName[33] = "", wifiPassword[65] = "";
+bool wifiConfigured() { return wifiName[0] != 0; }
 bool linked() { return key.length() == 43; }
 void wait(uint32_t milliseconds) { vTaskDelay(pdMS_TO_TICKS(milliseconds)); }
 
@@ -65,8 +72,8 @@ String codeLine() {
   return String("LINK CODE ") + shown.substring(0, 3) + " " + shown.substring(3) + "  -  sign in at https://" + CLOUD_HOST + "/setup and type it under \"Link a board\". The code lasts ten minutes.";
 }
 String status() {
-  if (!wifiConfigured()) return "Website link is off: fill in the Wi-Fi name and password in Config.h to use it.";
-  if (WiFi.status() != WL_CONNECTED) return String("Connecting to Wi-Fi \"") + WIFI_SSID + "\" (2.4 GHz networks only).";
+  if (!wifiConfigured()) return String("No Wi-Fi yet. Open https://") + CLOUD_HOST + "/boards in Chrome or Edge with this board plugged in, and type the Wi-Fi name and password there.";
+  if (WiFi.status() != WL_CONNECTED) return String("Connecting to Wi-Fi \"") + wifiName + "\" (2.4 GHz networks only).";
   if (linked()) return String("Linked to ") + CLOUD_HOST + ".";
   if (pairCode[0]) return codeLine();
   return String("Asking ") + CLOUD_HOST + " for a link code.";
@@ -176,6 +183,80 @@ bool link(const char* kind) {
   return true;
 }
 
+// ---- Wi-Fi name and password -------------------------------------------------------------------
+// Called once from setup(), before joinWifi(). What was set over USB wins over Config.h.
+void loadWifi() {
+  Preferences store;
+  String name, password;
+  if (store.begin("hf-wifi", false)) { name = store.getString("ssid", ""); password = store.getString("pass", ""); store.end(); }
+  if (!name.length() && strlen(WIFI_SSID) > 0 && strncmp(WIFI_SSID, "CHANGE_ME", 9) != 0) { name = WIFI_SSID; password = WIFI_PASSWORD; }
+  strlcpy(wifiName, name.c_str(), sizeof(wifiName));
+  strlcpy(wifiPassword, password.c_str(), sizeof(wifiPassword));
+}
+// Join the Wi-Fi in use (again). Does not wait: the link task notices when it is up.
+void joinWifi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.disconnect();
+  if (!wifiConfigured()) return;
+  if (wifiPassword[0]) WiFi.begin(wifiName, wifiPassword);
+  else WiFi.begin(wifiName);
+}
+// Keep a new Wi-Fi name and password in flash. Returns what is wrong with them, or nullptr.
+const char* saveWifi(const char* name, const char* password) {
+  const size_t nameLength = strlen(name), passwordLength = strlen(password);
+  if (nameLength < 1 || nameLength > 32) return "The Wi-Fi name must be 1 to 32 characters.";
+  if (passwordLength != 0 && (passwordLength < 8 || passwordLength > 64)) return "A Wi-Fi password is 8 to 63 characters (or empty for an open network).";
+  Preferences store;
+  if (!store.begin("hf-wifi", false)) return "The board could not open its storage.";
+  const bool kept = store.putString("ssid", name) > 0 && (passwordLength == 0 ? (store.remove("pass"), true) : store.putString("pass", password) > 0);
+  store.end();
+  if (!kept) return "The board could not save the Wi-Fi.";
+  strlcpy(wifiName, name, sizeof(wifiName));
+  strlcpy(wifiPassword, password, sizeof(wifiPassword));
+  return nullptr;
+}
+void forgetWifi() {
+  Preferences store;
+  if (store.begin("hf-wifi", false)) { store.remove("ssid"); store.remove("pass"); store.end(); }
+  wifiName[0] = 0; wifiPassword[0] = 0;
+}
+
+// One line of JSON on the USB line, from the website's "Boards and Wi-Fi" page:
+//   {"hf":"hello"}                                  what are you, and how far along?
+//   {"hf":"wifi","ssid":"...","password":"..."}     use this Wi-Fi from now on
+//   {"hf":"forget-wifi"}                            forget the Wi-Fi
+// The answer is one line of JSON that says what the board is, whether it is on Wi-Fi and whether
+// it is linked (with the link code while one is waiting). The password is never printed.
+// Called from the main loop only. Returns false when the line was not one of these.
+bool usbCommand(const String& text, const char* kind) {
+  JsonDocument ask;
+  if (deserializeJson(ask, text) || !ask["hf"].is<const char*>()) return false;
+  const String what = ask["hf"].as<const char*>();
+  JsonDocument answer;
+  answer["type"] = "board";
+  if (what == "wifi") {
+    const char* problem = saveWifi(ask["ssid"] | "", ask["password"] | "");
+    answer["saved"] = problem == nullptr;
+    if (problem) answer["message"] = problem;
+    else joinWifi();
+  } else if (what == "forget-wifi") { forgetWifi(); joinWifi(); answer["saved"] = true; }
+  else if (what != "hello") answer["message"] = "Unknown request.";
+  answer["kind"] = kind;
+  answer["firmware"] = FIRMWARE_NAME;
+  answer["site"] = CLOUD_HOST;
+  JsonObject wifi = answer["wifi"].to<JsonObject>();
+  wifi["set"] = wifiConfigured();
+  wifi["name"] = wifiName;
+  wifi["connected"] = WiFi.status() == WL_CONNECTED;
+  JsonObject site = answer["link"].to<JsonObject>();
+  site["linked"] = linked();
+  site["code"] = linked() ? "" : pairCode;
+  serializeJson(answer, Serial);
+  Serial.println();
+  return true;
+}
+
 // Called once from setup(), before the link task is started.
 void begin() {
   messageLock = xSemaphoreCreateMutex();
@@ -188,7 +269,7 @@ void begin() {
 // True when Wi-Fi is up. The first time, also asks the network for the time of day (some builds
 // check certificate dates). Only ever called from the link task, after Wi-Fi has started.
 bool online() {
-  if (WiFi.status() != WL_CONNECTED) return false;
+  if (!wifiConfigured() || WiFi.status() != WL_CONNECTED) return false;
   if (!timeAsked) { timeAsked = true; configTime(0, 0, "pool.ntp.org", "time.nist.gov"); }
   return true;
 }

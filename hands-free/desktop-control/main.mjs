@@ -69,7 +69,7 @@ async function start(){
  protocol.handle('handsfree',request=>{
   const u=new URL(request.url);let name;try{name=decodeURIComponent(u.pathname);}catch{return new Response('Invalid path',{status:400});}
   if(u.host!=='control'||name.includes('..')||name.includes('\\'))return new Response('Not found',{status:404});
-  const allowed=/^\/(screen(?:-app|-gaze|-worker|-eye-overlay|-positions|-targets|-camera|-profile|-typing|-eye-crop|-iris-detail|-face-detail)?\.(?:html|css|mjs)|vendor\/[a-zA-Z0-9_.-]+)$/;
+  const allowed=/^\/(screen(?:-app|-gaze|-worker|-eye-overlay|-positions|-targets|-camera|-profile|-devices|-typing|-eye-crop|-iris-detail|-face-detail)?\.(?:html|css|mjs)|vendor\/[a-zA-Z0-9_.-]+)$/;
   if(!allowed.test(name))return new Response('Not found',{status:404});
   return net.fetch(pathToFileURL(path.join(assets,name.slice(1))).href);
  });
@@ -190,6 +190,9 @@ async function start(){
    if(!dryRun)await shell.openExternal(link.page);
    return {ok:true,code:link.code,site:link.site,opened:true};
   }
+  // The website's Boards and Wi-Fi page, in the person's own browser: a board is plugged into
+  // the computer by USB there, given its program and told the Wi-Fi name and password.
+  if(action==='open-boards'){if(!dryRun)await shell.openExternal(DEVICE_SITE+'/boards');return {ok:true,site:new URL(DEVICE_SITE).host,opened:true};}
   return deviceLink.call(String(action),payload);
  });
  ipcMain.handle('screen:site',async(e,site,query)=>{trusted(e);const url=siteUrl(site,query);accessibleWindow=null;if(dryRun)return {dryRun:true,url};await shell.openExternal(url);return true;});

@@ -65,7 +65,13 @@ static bool wifiBegun = false;
 static bool wifiUp() { return wifiBegun && access((stateDir() + "/wifi-down").c_str(), F_OK) != 0; }
 size_t IPAddress::printTo(Print& p) const { return p.print("192.0.2.10"); }
 bool WiFiClass::mode(wifi_mode_t) { return true; } bool WiFiClass::setAutoReconnect(bool) { return true; }
-wl_status_t WiFiClass::begin(const char*, const char*) { wifiBegun = true; return WL_IDLE_STATUS; }
+// The network joined is written to a file in the state folder (name, then password), so a check
+// can see that the board joined with what it was given. On a board this is the radio.
+wl_status_t WiFiClass::begin(const char* ssid, const char* passphrase) {
+  if (FILE* f = fopen((stateDir() + "/wifi-joined").c_str(), "w")) { fprintf(f, "%s\n%s\n", ssid ? ssid : "", passphrase ? passphrase : ""); fclose(f); }
+  wifiBegun = true; return WL_IDLE_STATUS;
+}
+bool WiFiClass::disconnect(bool, bool) { wifiBegun = false; return true; }
 wl_status_t WiFiClass::status() { return wifiUp() ? WL_CONNECTED : WL_DISCONNECTED; } bool WiFiClass::reconnect() { return true; } IPAddress WiFiClass::localIP() { return IPAddress(); }
 WiFiClass WiFi;
 void NetworkClientSecure::setInsecure() { insecure = true; } void NetworkClientSecure::setCACert(const char* c) { rootCA = c; } void NetworkClientSecure::stop() {}

@@ -1,5 +1,5 @@
 #!/bin/bash
-# build.sh <transmitter|receiver> <port> [practice]   ->   bin/<board>[-practice]
+# build.sh <transmitter|receiver> <port> [practice|unset]   ->   bin/<board>[-practice|-unset]
 # Builds a sketch as a PC program: the sketch's own code, the real ArduinoJson and the real
 # Arduino String/Print/Stream classes, with runtime.cpp standing in for the ESP32 itself.
 set -e
@@ -15,9 +15,16 @@ for f in WString Print Stream; do [ -f "$here/obj/$f.o" ] || g++ $flags -w -c "$
 [ "$here/obj/runtime.o" -nt "$here/runtime.cpp" ] || g++ $flags -Wall -Wno-unused -c "$here/runtime.cpp" -o "$here/obj/runtime.o"
 work=$here/work/$1; rm -rf "$work"; mkdir -p "$work"; cp "$src"/* "$work"/
 # The test configuration: a Wi-Fi name (so the link starts) and the local copy of the website.
-sed -i 's/constexpr char WIFI_SSID\[\] = "CHANGE_ME";/constexpr char WIFI_SSID[] = "test-network";/; s/constexpr char WIFI_PASSWORD\[\] = "CHANGE_ME";/constexpr char WIFI_PASSWORD[] = "not-a-real-password";/; s/constexpr char CLOUD_HOST\[\] = "control.carla.codes";/constexpr char CLOUD_HOST[] = "127.0.0.1:'"$2"'";/' "$work/Config.h"
+sed -i 's/constexpr char CLOUD_HOST\[\] = "control.carla.codes";/constexpr char CLOUD_HOST[] = "127.0.0.1:'"$2"'";/' "$work/Config.h"
+grep -q '127.0.0.1' "$work/Config.h"
+# "unset" leaves Config.h without Wi-Fi, as the published board programs are: Wi-Fi then comes
+# over the USB line. Every other build has a Wi-Fi name in Config.h, as a board flashed from
+# Arduino IDE has.
+if [ "$3" != unset ]; then
+ sed -i 's/constexpr char WIFI_SSID\[\] = "CHANGE_ME";/constexpr char WIFI_SSID[] = "test-network";/; s/constexpr char WIFI_PASSWORD\[\] = "CHANGE_ME";/constexpr char WIFI_PASSWORD[] = "not-a-real-password";/' "$work/Config.h"
+ grep -q 'test-network' "$work/Config.h"
+fi
 [ "$3" = practice ] && sed -i 's/constexpr bool PRACTICE_MODE = false;/constexpr bool PRACTICE_MODE = true;/' "$work/Config.h"
-grep -q '127.0.0.1' "$work/Config.h" && grep -q 'test-network' "$work/Config.h"
 g++ $flags -Wall -Wextra -Wno-unused-parameter -Wno-sign-compare -I "$work" -x c++ -c "$work/$ino" -o "$here/obj/$1.o"
 g++ -o "$here/bin/$1${3:+-$3}" "$here/obj/$1.o" "$here"/obj/{runtime,WString,Print,Stream,stdlib_noniso}.o -lpthread
 echo "built $1${3:+-$3}"

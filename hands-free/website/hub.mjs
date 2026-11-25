@@ -145,8 +145,13 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
   // A recording made after "Record a button" was pressed becomes that button. Older ones the
   // board had saved (sent later, in a batch) go to the list instead.
   if(learning&&learning.until>now()&&recording.fresh&&at>=learning.startedAt-750){
+   // The next signal is taken for the button, whoever sent it. Two things are noted so the
+   // pages can say when it may not be the remote: the same signal was already arriving by itself
+   // in the two minutes before Record was pressed, or the device has it under another name.
+   const heardBefore=data.recordings.filter(r=>r.fresh&&r.at<learning.startedAt-750&&r.at>=learning.startedAt-120000&&sameSignal(r.raw_us,recording.raw_us)).length;
+   const sameAs=(appliance(learning.applianceId)?.buttons||[]).filter(b=>b.id!==learning.replace&&b.label.toLowerCase()!==learning.label.toLowerCase()&&sameSignal(b.raw_us,recording.raw_us)).map(b=>b.label);
    const made=await addButton(learning.applianceId,{label:learning.label,icon:learning.icon,replace:learning.replace},recording);
-   if(made.status===200){learned={applianceId:learning.applianceId,buttonId:made.body.button.id,label:learning.label,at:now(),...describe(recording.raw_us)};learning=null;return {status:200,body:{ok:true,button:learned.label}};}
+   if(made.status===200){learned={applianceId:learning.applianceId,buttonId:made.body.button.id,label:learning.label,at:now(),heardBefore,sameAs,...describe(recording.raw_us)};learning=null;return {status:200,body:{ok:true,button:learned.label}};}
   }
   data.recordings.push(recording);
   if(data.recordings.length>LIMITS.recordings)data.recordings.splice(0,data.recordings.length-LIMITS.recordings);
@@ -219,7 +224,10 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
   const receiver=data.devices.find(d=>d.kind==='receiver');
   if(!receiver)return {status:409,body:{message:'Link the receiver board first.'}};
   learning={applianceId,label:chosen,icon:ICONS.includes(icon)?icon:iconFor(chosen),replace:typeof replace==='string'?replace:null,startedAt:now(),until:now()+t.learn};learned=null;
-  return {status:200,body:{message:'Point the remote at the receiver and press the button once.',seconds:Math.round(t.learn/1000)}};
+  // Signals that arrived in the last minute with nothing being recorded: with two or more,
+  // something in the room is sending infrared by itself, and it could be taken for the button.
+  const noise=data.recordings.filter(r=>r.fresh&&now()-r.at<60000).length;
+  return {status:200,body:{message:noise>=2?'The receiver heard '+noise+' signals in the last minute with no button being recorded, so something nearby is sending infrared by itself. Cover the receiver from it, hold the remote close, then press the button once.':'Point the remote at the receiver and press the button once.',seconds:Math.round(t.learn/1000),noise}};
  }
  function stopLearning(){learning=null;return {status:200,body:{message:'Stopped.'}};}
 

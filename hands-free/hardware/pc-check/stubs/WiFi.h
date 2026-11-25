@@ -10,6 +10,7 @@ class WiFiClass {
  public:
   bool mode(wifi_mode_t mode); bool setAutoReconnect(bool on);
   wl_status_t begin(const char* ssid, const char* passphrase = nullptr);
+  bool disconnect(bool wifioff = false, bool eraseap = false);
   wl_status_t status(); bool reconnect(); IPAddress localIP();
 };
 extern WiFiClass WiFi;

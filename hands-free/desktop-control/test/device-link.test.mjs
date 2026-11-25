@@ -15,7 +15,7 @@ async function site(t){
  const base=`http://127.0.0.1:${server.address().port}`;
  const signed=await fetch(base+'/login',{method:'POST',redirect:'manual',headers:{Origin:base},body:new URLSearchParams(credentials)}),cookie=signed.headers.get('set-cookie').split(';')[0];
  const page=(route,method='GET',body)=>fetch(base+route,{method,headers:{Cookie:cookie,Origin:base,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});
- return {base,page};
+ return {base,page,server};
 }
 function memory(initial=null){let value=initial;const writes=[];return {read:async()=>value,write:async v=>{value=v;writes.push(v);},writes,get value(){return value;}};}
 
@@ -94,4 +94,25 @@ test('a code that has ended is replaced, and one that is running survives a webs
  const kept=await link.call('link');assert.equal(kept.code,'100002');
  assert.equal((await link.call('link-status')).ok,false);assert.equal((await link.call('link')).code,'100002','an unreachable website does not end the code');
  time+=11*60*1000;assert.equal((await link.call('link')).ok,false);assert.equal((await link.call('link-status')).expired,true);
+});
+// 0.4.43: the app may do what the Setup page does for a device and its buttons.
+test('a linked app renames, re-records and removes a device\'s buttons and the device, and nothing else',async t=>{
+ const {base,page,server}=await site(t),link=createDeviceLink({site:base,fetch,store:memory()});
+ const started=await link.call('link');await page('/api/pair/approve','POST',{code:started.code});
+ const added=await link.call('add',{name:'Lamp',kind:'light'});assert.equal(added.ok,true);const id=added.appliance.id;
+ assert.equal((await link.call('rename-device',{id,name:'Desk lamp'})).ok,true);assert.equal((await link.call('careful',{id,careful:true})).ok,true);
+ let lamp=(await link.call('get')).appliances.find(a=>a.id===id);assert.deepEqual([lamp.name,lamp.careful],['Desk lamp',true]);
+ const fan=(await link.call('get')).appliances[0],power=fan.buttons[0];
+ assert.equal((await link.call('rename-button',{id:power.id,label:'On and off'})).ok,true);
+ assert.equal((await link.call('get')).appliances[0].buttons[0].label,'On and off');
+ // Recording again names the button to replace; with no receiver linked the website says so.
+ const again=await link.call('learn',{applianceId:fan.id,label:'On and off',icon:'power',replace:power.id});assert.equal(again.ok,false);assert.match(again.message,/Link the receiver board first/);
+ assert.equal((await link.call('remove-button',{id:power.id})).ok,true);assert.equal((await link.call('get')).appliances[0].buttons.length,6);
+ assert.equal((await link.call('remove-device',{id})).ok,true);assert.equal((await link.call('get')).appliances.length,1);
+ // An id is part of the address the app asks for: anything that does not look like one is not sent.
+ for(const bad of ['../devices/d_000000000000','a_123','d_0123456789ab','a_0123456789ab/../../pair/approve','',null,undefined]){
+  const refused=await link.call('remove-device',{id:bad});assert.equal(refused.ok,false,String(bad));assert.equal(refused.status,0);
+ }
+ assert.equal((await link.call('remove-button',{id:'b_ffffffffffff'})).status,404);
+ assert.equal(server.hub.view().devices.length,1,'the app itself is still linked');
 });

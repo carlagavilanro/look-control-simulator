@@ -5,7 +5,7 @@ await fs.cp(path.join(root,'node_modules/electron/dist'),out,{recursive:true});
 await fs.mkdir(appdir,{recursive:true});
 for(const file of ['package.json','main.mjs','preload.cjs','input-policy.mjs','calibration-store.mjs','device-link.mjs','native-input.ps1','native-accessibility.ps1'])await fs.copyFile(path.join(root,file),path.join(appdir,file));
 await fs.mkdir(path.join(appdir,'public'),{recursive:true});
-for(const file of ['screen.html','screen.css','screen-app.mjs','screen-gaze.mjs','screen-positions.mjs','screen-worker.mjs','screen-eye-overlay.mjs','screen-targets.mjs','screen-camera.mjs','screen-profile.mjs','screen-typing.mjs','screen-eye-crop.mjs','screen-iris-detail.mjs','screen-face-detail.mjs'])await fs.copyFile(path.resolve(root,'../website/public',file),path.join(appdir,'public',file));
+for(const file of ['screen.html','screen.css','screen-app.mjs','screen-gaze.mjs','screen-positions.mjs','screen-worker.mjs','screen-eye-overlay.mjs','screen-targets.mjs','screen-camera.mjs','screen-profile.mjs','screen-devices.mjs','screen-typing.mjs','screen-eye-crop.mjs','screen-iris-detail.mjs','screen-face-detail.mjs'])await fs.copyFile(path.resolve(root,'../website/public',file),path.join(appdir,'public',file));
 await fs.cp(path.resolve(root,'../website/public/vendor'),path.join(appdir,'public/vendor'),{recursive:true});
 const exe=path.join(out,'Hands Free Screen Control.exe');
 await fs.copyFile(path.join(out,'electron.exe'),exe);await fs.unlink(path.join(out,'electron.exe'));

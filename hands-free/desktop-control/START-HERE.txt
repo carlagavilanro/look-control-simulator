@@ -1,4 +1,45 @@
-CURRENT VERSION 0.4.42 - "USE SAVED DEVICES" IS ON THE FIRST SCREEN
+CURRENT VERSION 0.4.43 - DEVICES AND BUTTONS LIKE THE WEBSITE; BOARDS AND WI-FI
+DEVICES AND BUTTONS IN THE APP
+"Use saved devices" and "Set up a device" now look and work like the
+website's pages:
+  - Every device and button has its picture and its name, the same ones
+    as on the website.
+  - "Set up a device" does everything the website's Setup page does:
+    add a device (choose its kind, then its name), add a button (the
+    usual names for that kind of device are offered with one press, or
+    write another name), and for every button: Send it, Record it
+    again, Rename, Remove. A device can be renamed, removed, or set to
+    ask Yes or No before every command.
+  - Before, the app could only add and record. Renaming, recording
+    again and removing had to be done on the website.
+  - After a button is recorded: Try it, Record it again, Add another
+    button, Done. If the receiver was already picking up a signal by
+    itself before you pressed the remote, the app says the recording
+    may be the wrong one.
+  - Removing always asks Yes or No, with No first.
+  - "Set up a device" is also on the "Use saved devices" screen.
+
+BOARDS AND WI-FI (no Arduino program needed)
+Under "Set up a device" there is "Boards and Wi-Fi". It opens the
+website page of that name in your browser (Chrome or Edge). There, with
+the board plugged into this computer by USB:
+  1. Connect: pick the board's port.
+  2. Program: install the receiver's or the transmitter's program.
+  3. Wi-Fi: type the Wi-Fi name and password. They go down the cable
+     to the board and nowhere else. Use this again whenever the Wi-Fi
+     changes.
+  4. Link: one press links the board to your devices.
+A board that was set up before this version has to get the new program
+once (step 2) before step 3 works. Recordings, the link and the Wi-Fi
+kept in the board stay.
+
+TESTED: on the app's page in a browser, with a stand-in for the Windows
+side, and with both board programs running on a PC against the
+website's own code. NOT yet tested: the new screens in the app on
+Windows itself, installing a program on a real board from the browser,
+and the new board programs on a real board.
+
+PREVIOUS VERSION 0.4.42 - "USE SAVED DEVICES" IS ON THE FIRST SCREEN
 The link at the top of the first screen now reads "Use saved devices"
 and opens your devices inside the app, for the mouse, without starting
 eye control. (The same devices are in the task menu once eye control is

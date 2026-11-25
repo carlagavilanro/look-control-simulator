@@ -107,6 +107,31 @@ test('"Record a button" takes the next fresh recording and leaves the board\'s o
  await hub.addRecording(receiver,capture(press([1,0,0,0,0,0,0,0,0,0,0,1]),{capture_id:4}),10);
  assert.equal(hub.view().appliances[1].buttons.length,1);
 });
+test('a recorded button that may not be the remote\'s is marked: a signal already arriving by itself, or one the device has',async()=>{
+ let time=1_000_000;const hub=createHub({seed,now:()=>time});await hub.ready;
+ const lamp=(await hub.addAppliance({name:'Lamp',kind:'light'})).body.appliance,receiver=(await link(hub,'receiver')).device;
+ const stray=press([1,0,1,0,1,0,1,0,1,0,1,0]),on=press([1,1,1,0,0,0,1,1,1,0,0,0]);let n=0;
+ const hear=(raw,ago=0)=>hub.addRecording(receiver,capture(raw,{capture_id:++n}),ago);
+ // A quiet room: nothing to say.
+ let started=hub.startLearning({applianceId:lamp.id,label:'On'});assert.equal(started.body.noise,0);assert.match(started.body.message,/^Point the remote at the receiver/);
+ time+=3000;await hear(on);assert.deepEqual([hub.view().learned.heardBefore,hub.view().learned.sameAs],[0,[]]);
+ // Something in the room sends the same signal every half minute, with nobody recording.
+ for(let i=0;i<3;i++){time+=30000;await hear(stray);}
+ assert.equal(hub.view().recordings.length,3);
+ time+=5000;started=hub.startLearning({applianceId:lamp.id,label:'Off'});
+ assert.equal(started.body.noise,2,'two of them in the last minute');assert.match(started.body.message,/heard 2 signals in the last minute.*Cover the receiver/);
+ time+=4000;await hear(stray);   // it arrives again before the remote is pressed, and is taken for the button
+ let learned=hub.view().learned;assert.equal(learned.label,'Off');assert.equal(learned.heardBefore,3,'the same signal, three times in the two minutes before');assert.deepEqual(learned.sameAs,[]);
+ // Recorded again with the real button: nothing to warn about, and the same button is replaced.
+ const off=hub.view().appliances[1].buttons.find(b=>b.label==='Off');
+ time+=200000;hub.startLearning({applianceId:lamp.id,label:'Off',replace:off.id});time+=2000;await hear(press([0,0,1,1,0,0,1,1,0,0,1,1]));
+ learned=hub.view().learned;assert.deepEqual([learned.heardBefore,learned.sameAs,learned.buttonId],[0,[],off.id]);
+ // The wrong button pressed: it is the signal "On" already has.
+ time+=200000;hub.startLearning({applianceId:lamp.id,label:'Brighter'});time+=2000;await hear(on);
+ assert.deepEqual(hub.view().learned.sameAs,['On']);
+ // The linked app sees the same marks.
+ assert.deepEqual(Object.keys(hub.view({full:false}).learned).sort(),['applianceId','at','buttonId','heardBefore','label','milliseconds','sameAs','timings']);
+});
 test('a command reaches a waiting transmitter at once and the page hears what happened',async()=>{
  const hub=createHub({seed,timing:quick});await hub.ready;
  const power=hub.view().appliances[0].buttons[0];
@@ -251,20 +276,30 @@ test('over HTTP: the Windows app may use the devices and set one up; the pages m
  assert.equal((await device(app,'/api/pair/approve','POST',{code:'123456'})).status,403);
  // Set up by eye in the app: add a device, then record a button for it.
  const added=await device(app,'/api/appliances','POST',{name:'TV',kind:'tv'});assert.equal(added.status,200);const tv=await added.json();
- assert.equal((await device(app,'/api/appliances/'+tv.appliance.id,'PATCH',{name:'Mine'})).status,403);
- assert.equal((await device(app,'/api/appliances/'+tv.appliance.id,'DELETE')).status,403);
- assert.equal((await page('/api/appliances/'+tv.appliance.id,'PATCH',{name:'Bedroom TV'})).status,200);
+ // Since 0.4.43 the app may also rename a device and set "ask before sending", as the Setup page can.
+ assert.equal((await device(app,'/api/appliances/'+tv.appliance.id,'PATCH',{name:'Bedroom TV'})).status,200);
+ assert.equal((await device(app,'/api/appliances/'+tv.appliance.id,'PATCH',{careful:true})).status,200);
  const receiver=await linked('receiver');
  assert.equal((await device(app,'/api/learn','POST',{applianceId:tv.appliance.id,label:'Mute',icon:'silence'})).status,200);
  assert.equal((await (await device(app,'/api/hub')).json()).learning.label,'Mute');
  await device(receiver,'/api/device/recordings','POST',capture(press([1,1,0,1,0,0,1,0,1,1,0,1])),{'X-Capture-Age-Ms':'30'});
  let view=await (await page('/api/hub')).json();
  assert.deepEqual(view.appliances[1].buttons.map(b=>b.label),['Mute']);assert.equal(view.learned.label,'Mute');
+ assert.deepEqual([view.appliances[1].name,view.appliances[1].careful],['Bedroom TV',true]);
  const mute=view.appliances[1].buttons[0];
- assert.equal((await page('/api/buttons/'+mute.id,'PATCH',{label:'Mute sound'})).status,200);
- assert.equal((await page('/api/buttons/'+mute.id,'DELETE')).status,200);
- assert.equal((await page('/api/appliances/'+tv.appliance.id,'DELETE')).status,200);
+ // The app renames a button, records it again in place, and removes it; then the device.
+ assert.equal((await device(app,'/api/buttons/'+mute.id,'PATCH',{label:'Mute sound'})).status,200);
+ assert.equal((await device(app,'/api/learn','POST',{applianceId:tv.appliance.id,label:'Mute sound',replace:mute.id})).status,200);
+ await device(receiver,'/api/device/recordings','POST',capture(press([0,1,0,0,1,1,0,1,0,0,1,1])),{'X-Capture-Age-Ms':'20'});
+ view=await (await page('/api/hub')).json();
+ assert.deepEqual(view.appliances[1].buttons.map(b=>[b.id,b.label,b.icon]),[[mute.id,'Mute sound','silence']],'the same button, with the new signal');
+ assert.equal((await device(app,'/api/buttons/'+mute.id,'DELETE')).status,200);
+ assert.equal((await device(app,'/api/appliances/'+tv.appliance.id,'DELETE')).status,200);
+ assert.equal((await device(app,'/api/appliances/'+tv.appliance.id,'DELETE')).status,404);
+ // What stays with the signed-in website: boards and apps, the recordings list, linking.
  const appDevice=view.devices.find(d=>d.kind==='app');
+ for(const [route,method,body] of [['/api/devices/'+appDevice.id,'PATCH',{name:'Mine'}],['/api/devices/'+appDevice.id,'DELETE'],['/api/recordings/all','DELETE'],['/api/appliances/'+view.appliances[0].id+'/buttons','POST',{label:'X',recording_id:'r_none'}],['/api/pair/approve','POST',{code:'123456'}]])
+  assert.equal((await device(app,route,method,body)).status,403,method+' '+route);
  assert.equal((await page('/api/devices/'+appDevice.id,'PATCH',{name:'Bedroom PC'})).status,200);
  assert.equal((await page('/api/devices/'+appDevice.id,'DELETE')).status,200);
  assert.equal((await device(app,'/api/hub')).status,401,'a removed app is refused');

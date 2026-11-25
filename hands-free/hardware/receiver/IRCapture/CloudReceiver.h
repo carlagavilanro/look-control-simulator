@@ -11,7 +11,7 @@
 // recording made a moment ago it also says how long ago, so the website can tell a button
 // pressed just now ("Record a button") from older saved ones. When there is nothing to send it
 // says hello to the website every 20 seconds.
-#define FIRMWARE_NAME "IRCapture-cloud-1"
+#define FIRMWARE_NAME "IRCapture-cloud-2"
 #include "CloudLink.h"
 
 struct RecentCapture { uint32_t id; uint32_t at; };
@@ -92,13 +92,13 @@ void printWebsiteLine(const String& text) {
 }
 void printWebsiteStatus() { printWebsiteLine(cloud::status()); }
 
-// Called once at the end of setup(). Does not wait for the network.
+// Called once at the end of setup(). Does not wait for the network. The link task is started
+// even with no Wi-Fi set, so that Wi-Fi typed on the website's "Boards and Wi-Fi" page (it
+// arrives on the USB line, see IRCapture.ino) is used at once, with no restart.
 void beginWebsite() {
-  if (!cloud::wifiConfigured()) { printWebsiteStatus(); return; }
-  WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  cloud::loadWifi();
   cloud::begin();
+  cloud::joinWifi();
   if (!cloud::start(websiteTask)) { printWebsiteLine("Could not start the website link (out of memory). Recording continues."); return; }
   printWebsiteStatus();
 }

@@ -23,8 +23,9 @@ jobs:
           arduino-cli lib install IRremoteESP8266 ArduinoJson
           arduino-cli core list | sed 's/^/::notice title=Board package::/'
           arduino-cli lib list | sed 's/^/::notice title=Library::/'
-      # With the Wi-Fi name left as the placeholder the compiler drops the whole website link, so
-      # the sketches are also built with a made-up name: that is the size a configured board has.
+      # The sketches are also built with a Wi-Fi name in Config.h, as a board flashed from Arduino
+      # IDE has. (Until the boards took Wi-Fi over USB, the compiler dropped the whole website link
+      # from a build with the placeholder name.)
       - name: Copies with a Wi-Fi name filled in
         run: |
           mkdir configured
@@ -35,7 +36,8 @@ jobs:
         run: |
           set -o pipefail
           for sketch in hands-free/hardware/transmitter/IRTransmitter configured/IRTransmitter; do
-            arduino-cli compile --fqbn esp32:esp32:esp32 $sketch 2>&1 | tee transmitter.log || { grep -iE "error|too big|No such file" transmitter.log | head -15 | sed "s|^|::error title=Transmitter sketch ($sketch)::|"; exit 1; }
+            out=built/$(dirname $sketch | tr / -)-transmitter
+            arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir $out $sketch 2>&1 | tee transmitter.log || { grep -iE "error|too big|No such file" transmitter.log | head -15 | sed "s|^|::error title=Transmitter sketch ($sketch)::|"; exit 1; }
             grep -E "Sketch uses|Global variables" transmitter.log | sed "s|^|::notice title=Transmitter sketch ($sketch)::|"
           done
       - name: Compile the receiver sketch
@@ -43,9 +45,25 @@ jobs:
         run: |
           set -o pipefail
           for sketch in hands-free/hardware/receiver/IRCapture configured/IRCapture; do
-            arduino-cli compile --fqbn esp32:esp32:esp32 $sketch 2>&1 | tee receiver.log || { grep -iE "error|too big|No such file" receiver.log | head -15 | sed "s|^|::error title=Receiver sketch ($sketch)::|"; exit 1; }
+            out=built/$(dirname $sketch | tr / -)-receiver
+            arduino-cli compile --fqbn esp32:esp32:esp32 --output-dir $out $sketch 2>&1 | tee receiver.log || { grep -iE "error|too big|No such file" receiver.log | head -15 | sed "s|^|::error title=Receiver sketch ($sketch)::|"; exit 1; }
             grep -E "Sketch uses|Global variables" receiver.log | sed "s|^|::notice title=Receiver sketch ($sketch)::|"
           done
+      # The programs as they are in the repository (no Wi-Fi in them: a board gets its Wi-Fi over
+      # USB from the website's Boards and Wi-Fi page) are gathered with a manifest. The website
+      # installs them on a board from the browser, so nobody needs Arduino IDE at home.
+      - name: Gather the board programs
+        run: |
+          version=$(node -p "require('./hands-free/desktop-control/package.json').version")
+          boot=$(ls ~/.arduino15/packages/esp32/hardware/esp32/*/tools/partitions/boot_app0.bin | head -1)
+          node hands-free/hardware/tools/board-programs.mjs board-programs "$version" "$GITHUB_SHA" "$boot" \
+            receiver=built/hands-free-hardware-receiver-receiver transmitter=built/hands-free-hardware-transmitter-transmitter | sed 's/^/::notice title=Board program::/'
+          ls -l board-programs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: board-programs
+          path: board-programs
+          if-no-files-found: error
   build-and-test:
     runs-on: windows-latest
     timeout-minutes: 20
@@ -91,3 +109,25 @@ jobs:
           else
             gh release create "v$version" "$zip" --title "Hands Free $version" --notes "Hands Free Screen Control $version for Windows. Unzip, then follow START-HERE.txt." --target "$GITHUB_SHA" --latest
           fi
+  # The board programs go on the same release as the Windows app. The website fetches them from
+  # the newest release for its Boards and Wi-Fi page.
+  publish-board-programs:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [firmware, build-and-test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: board-programs
+          path: board-programs
+      - name: Attach the board programs to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./hands-free/desktop-control/package.json').version")
+          gh release view "v$version" >/dev/null
+          gh release upload "v$version" board-programs/* --clobber

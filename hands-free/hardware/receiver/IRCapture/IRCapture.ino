@@ -8,7 +8,8 @@
 #include "CloudReceiver.h"
 
 // Capture board only. Automatically saves locally, with no computer or Wi-Fi.
-// With Wi-Fi filled in (Config.h) it also sends what it saved to the website: CloudReceiver.h.
+// With Wi-Fi set (from the website's Boards and Wi-Fi page, or Config.h) it also sends what it
+// saved to the website: CloudReceiver.h.
 IRrecv receiver(IR_RECEIVER_PIN, CAPTURE_BUFFER_SIZE, CAPTURE_TIMEOUT_MS, true);
 decode_results results;
 uint32_t captureSequence = 0;
@@ -20,13 +21,17 @@ void handleSerialCommands() {
     const char value = static_cast<char>(Serial.read());
     if(value == '\r') continue;
     if(value != '\n') {
-      if(serialCommand.length() < 64 && !serialCommandOverflow) serialCommand += value;
+      // 400: room for a request from the website's Boards and Wi-Fi page (a line of JSON).
+      if(serialCommand.length() < 400 && !serialCommandOverflow) serialCommand += value;
       else serialCommandOverflow = true;
       continue;
     }
     if(!serialCommandOverflow) {
       serialCommand.trim();
-      if(serialCommand == "STATUS") printCaptureStatus();
+      if(serialCommand.startsWith("{")) {
+        if(!cloud::usbCommand(serialCommand, "receiver")) Serial.println("{\"type\":\"error\",\"message\":\"Unknown receiver request\"}");
+      }
+      else if(serialCommand == "STATUS") printCaptureStatus();
       else if(serialCommand == "CLOUD") printWebsiteStatus();
       else if(serialCommand == "EXPORT") {
         receiver.disableIRIn(); exportCaptures(); receiver.enableIRIn();

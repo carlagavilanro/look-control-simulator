@@ -10,7 +10,7 @@
 // same check every stored signal passes. The infrared itself is sent by the main loop, exactly
 // as for a USB or Wi-Fi command, with the same 0.8 second gap between commands.
 #include <atomic>
-#define FIRMWARE_NAME "IRTransmitter-cloud-1"
+#define FIRMWARE_NAME "IRTransmitter-cloud-2"
 #include "CloudLink.h"
 
 struct WebsiteCommand { String id, label; StoredSignal signal; };
@@ -64,9 +64,10 @@ void websiteTask(void*) {
   }
 }
 
-// Called once at the end of setup(). Wi-Fi itself is started by setup(), as before.
+// Called once at the end of setup(). Wi-Fi itself is started by setup(). The link task is started
+// even with no Wi-Fi set, so that Wi-Fi typed on the website's "Boards and Wi-Fi" page (it
+// arrives on the USB line, see FanTest.h) is used at once, with no restart.
 void beginWebsite() {
-  if (!cloud::wifiConfigured()) { Serial.println("WEBSITE: " + cloud::status()); return; }
   websiteCommandHandled = xSemaphoreCreateBinary();
   cloud::begin();
   if (!websiteCommandHandled || !cloud::start(websiteTask)) { Serial.println("WEBSITE: could not start the website link (out of memory)."); return; }

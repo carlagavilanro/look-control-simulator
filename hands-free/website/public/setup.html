@@ -26,9 +26,10 @@
 <symbol id="i-input" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M8 12h8 M13 9l3 3-3 3"/></symbol>
 <symbol id="i-light" viewBox="0 0 24 24"><path d="M9 18h6 M10 21h4 M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3Z"/></symbol>
 <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/></symbol>
+<symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4 M15 2v4 M9 18v4 M15 18v4 M2 9h4 M2 15h4 M18 9h4 M18 15h4"/></symbol>
 </defs></svg>
 <a class="skip-link" href="#main-content">Skip to setup</a>
-<nav class="rail" aria-label="Main navigation"><a class="brand" href="/" aria-label="Hands Free home"><svg><use href="#i-eye"/></svg></a><a href="/" aria-label="Device controls"><svg><use href="#i-room"/></svg><span>Devices</span></a><a href="/screen" aria-label="Screen control"><svg><use href="#i-tv"/></svg><span>Screen</span></a><a class="rail-active" href="/setup" aria-label="Setup"><svg><use href="#i-mode"/></svg><span>Setup</span></a><div class="rail-bottom">HF<span>Capstone</span></div></nav>
+<nav class="rail" aria-label="Main navigation"><a class="brand" href="/" aria-label="Hands Free home"><svg><use href="#i-eye"/></svg></a><a href="/" aria-label="Device controls"><svg><use href="#i-room"/></svg><span>Devices</span></a><a href="/screen" aria-label="Screen control"><svg><use href="#i-tv"/></svg><span>Screen</span></a><a class="rail-active" href="/setup" aria-label="Setup"><svg><use href="#i-mode"/></svg><span>Setup</span></a><a href="/boards" aria-label="Boards and Wi-Fi"><svg><use href="#i-chip"/></svg><span>Boards</span></a><div class="rail-bottom">HF<span>Capstone</span></div></nav>
 <div class="app-shell">
 <header class="topbar"><a href="/" class="wordmark">Hands<span> Free</span><span class="wordmark-dot"></span></a><div class="top-actions"><a class="primary-button" href="/">Use saved devices →</a><form action="/logout" method="post"><button class="text-button" type="submit">Sign out</button></form></div></header>
 <main id="main-content" tabindex="-1">
@@ -48,7 +49,8 @@
 <section class="setup-block" id="boards" aria-labelledby="boards-title">
  <h2 id="boards-title">Boards and apps</h2>
  <div id="board-status" class="status-row"></div>
- <form id="link-form" class="link-form"><label for="link-code">Link code</label><div class="link-row"><input id="link-code" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="123 456" aria-describedby="link-help"><button class="primary-button" type="submit">Link</button></div><p id="link-help" class="hint">A board shows its six-digit code in the Arduino Serial Monitor (115200 baud) once it is on Wi-Fi. The Windows app shows one under Use saved devices, and can open this page with the code filled in. A code lasts ten minutes.</p></form>
+ <p class="board-setup"><a class="secondary-button" href="/boards">Set up a board by USB: its program and its Wi-Fi →</a></p>
+ <form id="link-form" class="link-form"><label for="link-code">Link code</label><div class="link-row"><input id="link-code" inputmode="numeric" autocomplete="off" maxlength="7" placeholder="123 456" aria-describedby="link-help"><button class="primary-button" type="submit">Link</button></div><p id="link-help" class="hint">A board is linked from the Boards and Wi-Fi page, with one press. The Windows app shows a code under Use saved devices, and can open this page with the code filled in. A code lasts ten minutes.</p></form>
  <ul id="device-list" class="rows"></ul>
 </section>
 <footer><span><span class="status-dot"></span> Hands Free · Capstone project</span><span>No video is uploaded or stored.</span></footer>

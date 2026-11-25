@@ -4,8 +4,9 @@
 // process. The app is linked once: it asks the website for a six-digit code, the person types
 // the code on the signed-in website, and the website gives the app a key of its own. The key
 // is kept on this computer (see main.mjs) and is sent only to the website it came from.
-// With it the app can list the devices, send their buttons, add a device and record a button.
-// Renaming, removing and linking stay on the website.
+// With it the app can list the devices, send their buttons, add a device, record a button,
+// rename either, record a button again and remove either. Linking, the boards themselves and
+// the list of recordings stay on the website.
 //
 // One code is kept until it is used or ends (ten minutes). Until 0.4.41 every visit to the
 // devices made a new code and dropped the one before, and the code was only waited on while its
@@ -56,12 +57,21 @@ export function createDeviceLink({site,fetch,store,hostname='',now=Date.now}){
   if(result.status===401){key=null;try{await store.write(null);}catch{}return {ok:false,status:401,unlinked:true,site:where,message:'This app is no longer linked to '+where+'.'};}
   return result;
  }
+ const named=(what,id,method,body)=>/^[ab]_[a-f0-9]{12}$/.test(id||'')?linked('/api/'+what+'/'+id,method,body):Promise.resolve({ok:false,status:0,message:'That device or button could not be found.'});
  const actions={
   get:()=>linked('/api/hub'),
   send:p=>linked('/api/send','POST',{button_id:text(p?.button_id,40),request_id:randomBytes(16).toString('hex'),created_at:Date.now(),...(p?.confirm===true?{confirm:true}:{})}),
   add:p=>linked('/api/appliances','POST',{name:text(p?.name,32),kind:text(p?.kind,12)}),
-  learn:p=>linked('/api/learn','POST',{applianceId:text(p?.applianceId,40),label:text(p?.label,24),...(p?.icon?{icon:text(p.icon,12)}:{})}),
+  // replace: the button whose signal is recorded again (it keeps its place and its name).
+  learn:p=>linked('/api/learn','POST',{applianceId:text(p?.applianceId,40),label:text(p?.label,24),...(p?.icon?{icon:text(p.icon,12)}:{}),...(p?.replace?{replace:text(p.replace,40)}:{})}),
   stop:()=>linked('/api/learn','DELETE'),
+  // Renaming and removing, as on the website's Setup page. An id goes into the address, so it
+  // must look like one the website made.
+  'rename-device':p=>named('appliances',p?.id,'PATCH',{name:text(p?.name,32)}),
+  careful:p=>named('appliances',p?.id,'PATCH',{careful:p?.careful===true}),
+  'remove-device':p=>named('appliances',p?.id,'DELETE'),
+  'rename-button':p=>named('buttons',p?.id,'PATCH',{label:text(p?.label,24),...(p?.icon?{icon:text(p.icon,12)}:{})}),
+  'remove-button':p=>named('buttons',p?.id,'DELETE'),
   // Linking: ask for a code, then keep asking whether it has been typed on the website.
   // linked: the app has its key already (the code was typed since the last look).
   async link(){

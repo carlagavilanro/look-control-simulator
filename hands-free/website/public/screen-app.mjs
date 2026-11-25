@@ -6,6 +6,7 @@ import {WordSuggestions,insertText,completeWord} from './screen-typing.mjs';
 import {MAX_HEAD_POSITIONS,savedHeadPositions,HeadPositionSelector,resetDwellForPosition,estimateHeadPositions,nextHeadPosition,HeadCaptureGuide,HeadReturnGuide,calibrationReturnPlan,calibrationReturnFeedback} from './screen-positions.mjs';
 import {focusChoice,visibleFocusTargets,coveredFocusTargets,controlNames,readingOrder,CHOICES} from './screen-targets.mjs';
 import {CALIBRATION_KEY,readProfile,writeProfile,chooseCamera} from './screen-profile.mjs';
+import {KINDS,KIND_ICON,picture,buttonIcon,missingButtons,learnedWarning} from './screen-devices.mjs';
 const $=id=>document.getElementById(id),desktop=window.desktopControl,pointer=new GazePointer(),fixation=new FixationGate(),intent=new TargetIntent(),dwell=new TargetDwell(600,{pauseMs:300,releaseMs:200});
 const KEY=CALIBRATION_KEY;
 // Where the profile's camera and options are kept (see screen-profile.mjs). A browser that
@@ -1480,7 +1481,7 @@ function recordTracking(prediction,view,now){
 }
 function trackingReport(){
  const stamp=JSON.stringify(model);let hash=2166136261;for(let i=0;i<stamp.length;i++)hash=Math.imul(hash^stamp.charCodeAt(i),16777619);
- return {version:'0.4.42',filter:{movementConfirmationMs:120,maximumInTargetPauseMs:300,medianWindowMs:150,selectionHoldMs:600,intentWindowMs:240},headEstimate,activePositionId:positionId,savedHeadPositions:headPositions.length,mapId:(hash>>>0).toString(16),camera:cameraStats,viewport:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},
+ return {version:'0.4.43',filter:{movementConfirmationMs:120,maximumInTargetPauseMs:300,medianWindowMs:150,selectionHoldMs:600,intentWindowMs:240},headEstimate,activePositionId:positionId,savedHeadPositions:headPositions.length,mapId:(hash>>>0).toString(16),camera:cameraStats,viewport:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},
   note:'Local session diagnostics. Movement between frames includes intentional eye movement; these are not target accuracy results. These are pointer stability measurements, not identified microsaccades or proof of gaze accuracy. No images, typed text, profile name, or raw eye features included.',
   runs:Object.fromEntries([...trackingRuns].map(([mode,rows])=>{
    const r=rows.filter(x=>performance.now()-x.at<=120000),rejected={};for(const x of r)if(!x.usable){const k=x.recovering?'recovering':x.reason;rejected[k]=(rejected[k]||0)+1;}
@@ -1653,12 +1654,24 @@ function tiles(label,entries,grid=false,page=0,options={}){
  const pages=entries.length>layout.capacity?Math.ceil(entries.length/pageSize):1;
  if(!grid&&pages>1){const all=entries;entries=[...all.slice(page*pageSize,(page+1)*pageSize),...(navigationSlots===2?[entry('Previous page',()=>tiles(label,all,false,(page+pages-1)%pages,options))]:[]),entry('Next page',()=>tiles(label,all,false,(page+1)%pages,options))];}
  $('pause').textContent=active?'Pause':'Setup';items=entries;$('tiles').replaceChildren();$('tiles').hidden=false;$('tiles').classList.remove('view');$('tiles').classList.toggle('grid',grid);$('mode-label').textContent=label;
- for(const item of entries){const b=document.createElement('button'),s=document.createElement('span');s.textContent=item.label;b.append(s);b.onclick=()=>run(item.action);$('tiles').append(b);}
+ for(const item of entries){
+  const b=document.createElement('button'),s=document.createElement('span');s.textContent=item.label;
+  if(item.icon){
+   // The same pictures as the website's pages (the symbols are in screen.html).
+   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg'),use=document.createElementNS('http://www.w3.org/2000/svg','use');
+   svg.setAttribute('class','tile-icon');svg.setAttribute('aria-hidden','true');use.setAttribute('href','#i-'+item.icon);svg.append(use);
+   const words=document.createElement('span');words.className='tile-words';words.append(s);
+   if(item.detail){const small=document.createElement('small');small.textContent=item.detail;words.append(small);}
+   b.classList.add('pictured');b.append(svg,words);
+  }else b.append(s);
+  b.onclick=()=>run(item.action);$('tiles').append(b);
+ }
  $('tiles').style.setProperty('--typing-rows',layout.rows);$('tiles').style.setProperty('--typing-key-height',(layout.rows*typing.row+Math.max(0,layout.rows-1)*6)+'px');
  if(!$('composer').hidden)requestAnimationFrame(syncTypingRegion);
  $('cancel').textContent='Back';$('typed').textContent='';$('hint').textContent=grid?`Choose the area containing the ${clickPurpose==='field'?'text box':'video or button'}. Zoom ${depth+1}. Back undoes one zoom.`:`${pages>1?'Page '+(page+1)+' of '+pages+' · ':''}Hold for 0.6 seconds. Look away after selection.`;
 }
-function entry(label,action,description=''){return {label,action,description};}
+// extra: {icon, detail} for a tile with a picture and a line under its name (devices and buttons).
+function entry(label,action,description='',extra=null){return {label,action,description,...(extra||{})};}
 async function run(action){if(busy)return;busy=true;try{await action();}catch(e){await pause();report(e.message);}finally{busy=false;}}
 async function command(payload){if(desktop)await desktop.command(payload);else if(site){const said=site.command(payload);if(said)report(said);}else{
  if(payload.type==='text')$('practice-text').value+=payload.text;
@@ -1734,9 +1747,13 @@ async function siteCall(route,method='GET',body){
 }
 const requestId=()=>Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');
 const deviceHub=desktop?(desktop.devices?(action,payload)=>desktop.devices(action,payload).catch(()=>({ok:false,status:0,message:'The app could not ask the website.'})):null)
- :(action,p)=>action==='get'?siteCall('/api/hub'):action==='send'?siteCall('/api/send','POST',{button_id:p.button_id,request_id:requestId(),created_at:Date.now(),...(p.confirm?{confirm:true}:{})}):action==='add'?siteCall('/api/appliances','POST',p):action==='learn'?siteCall('/api/learn','POST',p):action==='stop'?siteCall('/api/learn','DELETE'):Promise.resolve({ok:false,status:0,message:'Not available here.'});
+ :(action,p)=>action==='get'?siteCall('/api/hub'):action==='send'?siteCall('/api/send','POST',{button_id:p.button_id,request_id:requestId(),created_at:Date.now(),...(p.confirm?{confirm:true}:{})}):action==='add'?siteCall('/api/appliances','POST',p):action==='learn'?siteCall('/api/learn','POST',p):action==='stop'?siteCall('/api/learn','DELETE')
+ :action==='rename-device'?siteCall('/api/appliances/'+encodeURIComponent(p.id),'PATCH',{name:p.name}):action==='careful'?siteCall('/api/appliances/'+encodeURIComponent(p.id),'PATCH',{careful:p.careful===true}):action==='remove-device'?siteCall('/api/appliances/'+encodeURIComponent(p.id),'DELETE')
+ :action==='rename-button'?siteCall('/api/buttons/'+encodeURIComponent(p.id),'PATCH',{label:p.label,...(p.icon?{icon:p.icon}:{})}):action==='remove-button'?siteCall('/api/buttons/'+encodeURIComponent(p.id),'DELETE'):Promise.resolve({ok:false,status:0,message:'Not available here.'});
 function askText(options){ask=options;drafts.ask=options.value||'';compose('ask');}
-function deviceScreen(next){hideComposer();stage=next;document.body.classList.remove('viewing');snapshot=null;$('snapshot').hidden=true;waitingFor=null;linkingApp=false;}
+// back: what the Back button does on this screen (null: it has its own rule, below).
+let deviceBack=null;
+function deviceScreen(next,back=null){hideComposer();stage=next;deviceBack=back;document.body.classList.remove('viewing');snapshot=null;$('snapshot').hidden=true;waitingFor=null;linkingApp=false;}
 async function loadDevices(again){
  if(!deviceHub){tiles('Devices',[entry('Back to tasks',()=>menu())]);report('Devices need a newer version of the Windows app.');return null;}
  const state=await deviceHub('get');
@@ -1745,63 +1762,131 @@ async function loadDevices(again){
  tiles('Devices',[entry('Try again',again),entry('Back to tasks',()=>menu())]);report(state.message||'The website could not be reached.');return null;
 }
 const senderNote=state=>!state.transmitter.linked?'The transmitter board is not linked yet: nothing can be sent.':!state.transmitter.online?'The transmitter board is offline: nothing is sent until it reconnects.':state.transmitter.practice?'The transmitter is in practice mode: no infrared is sent.':'';
+// A device or a button as a tile: its picture, its name, and a line under the name.
+const pictured=(label,action,icon,detail='')=>entry(label,action,'',{icon:picture(icon),detail});
+const kindPicture=a=>KIND_ICON[a.kind]||'dot';
+const count=(n,one)=>n+' '+one+(n===1?'':'s');
 async function devicesMenu(){
- deviceScreen('devices');const state=await loadDevices(()=>devicesMenu());if(!state)return;
+ deviceScreen('devices',()=>menu());const state=await loadDevices(()=>devicesMenu());if(!state)return;
  const ready=state.appliances.filter(a=>a.buttons.length);
- tiles('Use saved devices',[...ready.map(a=>entry(a.name,()=>deviceButtons(a.id))),...(ready.length?[]:[entry('Set up a device',()=>deviceSetup())]),entry('Back to tasks',()=>menu())]);
- report(ready.length?senderNote(state)||'Choose a device.':'No device has a button yet. Choose Set up a device.');
+ tiles('Use saved devices',[...ready.map(a=>pictured(a.name,()=>deviceButtons(a.id),kindPicture(a),count(a.buttons.length,'button')+(a.careful?' · asks first':''))),entry('Set up a device',()=>deviceSetup(),'Add or change devices and buttons'),entry('Back to tasks',()=>menu())]);
+ report(ready.length?senderNote(state)||'Choose a device. Set up a device adds or changes devices and buttons.':'No device has a button yet. Choose Set up a device.');
 }
 async function deviceButtons(id,note=''){
- deviceScreen('device');const state=await loadDevices(()=>deviceButtons(id));if(!state)return;
+ deviceScreen('device',()=>devicesMenu());const state=await loadDevices(()=>deviceButtons(id));if(!state)return;
  const a=state.appliances.find(x=>x.id===id);if(!a){await devicesMenu();return;}
- tiles(a.name,[...a.buttons.map(b=>entry(b.label,()=>pressDevice(a,b))),entry('Back',()=>devicesMenu())]);
+ tiles(a.name,[...a.buttons.map(b=>pictured(b.label,()=>pressDevice(a,b),b.icon)),entry('Back',()=>devicesMenu())]);
  report(note||senderNote(state)||'Hold a button for 0.6 seconds to send it.');
 }
-async function pressDevice(a,b,confirmed=false){
+// `after`: where to go when a send was started from somewhere other than the device's own buttons.
+async function pressDevice(a,b,confirmed=false,after=null){
  // A device that asks first (a heater): "No" comes first, so a stray look does not send.
- if(a.careful&&!confirmed){stage='device-confirm';tiles('Send '+a.name+' · '+b.label+'?',[entry('No, go back',()=>deviceButtons(a.id,'Nothing was sent.')),entry('Yes, send '+b.label,()=>pressDevice(a,b,true))]);report('Choose Yes to send '+b.label+', or No.');return;}
+ if(a.careful&&!confirmed){const back=after?()=>after('Nothing was sent.'):()=>deviceButtons(a.id,'Nothing was sent.');deviceScreen('device-confirm',back);tiles('Send '+a.name+' · '+b.label+'?',[entry('No, go back',back),entry('Yes, send '+b.label,()=>pressDevice(a,b,true,after))]);report('Choose Yes to send '+b.label+', or No.');return;}
  report('Sending '+a.name+' · '+b.label+'…');
  const result=await deviceHub('send',{button_id:b.id,confirm:confirmed});
  const said=a.name+' · '+b.label+': '+(result.message||(result.ok?'Sent.':'No answer. Check the device before trying again.'));
+ if(after){await after(said);return;}
  if(confirmed||stage!=='device'){await deviceButtons(a.id,said);return;}
  blockedUntil=performance.now()+600;report(said);
 }
+
+// ---- Set up a device ---------------------------------------------------------------------------
+// Everything the website's Setup page does for a device can be done here too, by eye: add a
+// device, add a button from the suggested names or with the keyboard, send it to try it, record
+// it again, rename it, remove it. (Until 0.4.43 the app could add and record only, and showed
+// devices and buttons as plain names.)
 async function deviceSetup(note=''){
- deviceScreen('device-setup');const state=await loadDevices(()=>deviceSetup());if(!state)return;
- tiles('Set up a device',[entry('Add a device',()=>chooseDeviceKind()),...state.appliances.map(a=>entry(a.name,()=>deviceEdit(a.id))),entry('Back to tasks',()=>menu())]);
- report(note||(!state.receiver?.linked?'The receiver board is not linked yet. Link it on the website, under Setup.':!state.receiver.online?'The receiver board is offline. Power it on to record buttons.':'Add a device, or choose one to add a button to it.'));
+ deviceScreen('device-setup',()=>menu());const state=await loadDevices(()=>deviceSetup());if(!state)return;
+ tiles('Set up a device',[pictured('Add a device',()=>chooseDeviceKind(),'plus'),...state.appliances.map(a=>pictured(a.name,()=>deviceEdit(a.id),kindPicture(a),a.buttons.length?count(a.buttons.length,'button'):'no buttons yet')),
+  ...(desktop?[entry('Boards and Wi-Fi',()=>openBoards(),'Opens the website page where a board gets its program and its Wi-Fi')]:[]),entry('Back to tasks',()=>menu())]);
+ report(note||(!state.receiver?.linked?'The receiver board is not linked yet. Link it on the website, under Boards.':!state.receiver.online?'The receiver board is offline. Power it on to record buttons.':'Add a device, or choose one to change it or add a button.'));
+}
+// A board is plugged into the computer by USB for this, so it is done in the browser, by hand.
+async function openBoards(){
+ const opened=await deviceHub('open-boards');
+ if(!opened.ok){report(opened.message||'The browser could not be opened. Go to the website and choose Boards.');return;}
+ browse();report('Boards and Wi-Fi is open in your browser. Plug the board into this computer with a USB cable and follow the four steps there.');
 }
 function chooseDeviceKind(){
- deviceScreen('device-kind');
- tiles('What kind of device?',[...[['Fan','fan'],['TV','tv'],['Heater','heater'],['Light','light'],['Other','other']].map(([label,kind])=>entry(label,()=>askText({label:'Name of the device',title:'Write the device name',submit:'Add this device',value:kind==='other'?'':label,max:32,cancel:()=>run(()=>deviceSetup()),
-  done:async name=>{const result=await deviceHub('add',{name,kind});if(!result.ok){await deviceSetup(result.message);return;}await deviceEdit(result.appliance.id,name+' was added. Now add its first button.');}}))),entry('Back',()=>deviceSetup())]);
+ deviceScreen('device-kind',()=>deviceSetup());
+ tiles('What kind of device?',[...KINDS.map(([label,kind])=>pictured(label,()=>askText({label:'Name of the device',title:'Write the device name',submit:'Add this device',value:kind==='other'?'':label,max:32,cancel:()=>run(()=>deviceSetup()),
+  done:async name=>{const result=await deviceHub('add',{name,kind});if(!result.ok){await deviceSetup(result.message);return;}await deviceEdit(result.appliance.id,name+' was added. Now add its first button.');}}),KIND_ICON[kind])),entry('Back',()=>deviceSetup())]);
  report('Choose the kind of device. Its name comes next.');
 }
 async function deviceEdit(id,note=''){
- deviceScreen('device-edit');const state=await loadDevices(()=>deviceEdit(id));if(!state)return;
+ deviceScreen('device-edit',()=>deviceSetup());const state=await loadDevices(()=>deviceEdit(id));if(!state)return;
  const a=state.appliances.find(x=>x.id===id);if(!a){await deviceSetup();return;}
- tiles(a.name,[entry('Add a button',()=>nameDeviceButton(a)),...(a.buttons.length?[entry('Use '+a.name,()=>deviceButtons(a.id))]:[]),entry('Back',()=>deviceSetup())]);
- report(note||(a.buttons.length?a.name+' has '+a.buttons.length+(a.buttons.length===1?' button: ':' buttons: ')+a.buttons.map(b=>b.label).join(', ')+'.':a.name+' has no buttons yet. Choose Add a button.'));
+ tiles(a.name,[pictured('Add a button',()=>addDeviceButton(a),'plus'),...a.buttons.map(b=>pictured(b.label,()=>buttonEdit(a.id,b.id),b.icon,'send · record · rename')),
+  entry('Change '+a.name,()=>deviceChange(a.id),'Rename it, ask before sending, or remove it'),...(a.buttons.length?[entry('Use '+a.name,()=>deviceButtons(a.id))]:[]),entry('Back',()=>deviceSetup())]);
+ report(note||(a.buttons.length?'Choose a button to try it, record it again, rename it or remove it. Or add a button.':a.name+' has no buttons yet. Choose Add a button.'));
+}
+// Yes or No before something is removed. "No" comes first, so a stray look removes nothing.
+function confirmRemoval(what,back,remove){
+ deviceScreen('device-confirm',back);
+ tiles('Remove '+what+'?',[entry('No, keep it',back),entry('Yes, remove '+what,remove)]);report('Choose Yes to remove '+what+', or No.');
+}
+async function deviceChange(id,note=''){
+ deviceScreen('device-change',()=>deviceEdit(id));const state=await loadDevices(()=>deviceChange(id));if(!state)return;
+ const a=state.appliances.find(x=>x.id===id);if(!a){await deviceSetup();return;}
+ tiles('Change '+a.name,[
+  entry('Rename',()=>askText({label:'New name for '+a.name,title:'Write the device name',submit:'Save this name',value:a.name,max:32,cancel:()=>run(()=>deviceChange(id)),
+   done:async name=>{const result=await deviceHub('rename-device',{id,name});await deviceChange(id,result.ok?'Renamed to '+name+'.':result.message||'The name could not be saved.');}})),
+  entry(a.careful?'Stop asking before sending':'Ask before sending',async()=>{const result=await deviceHub('careful',{id,careful:!a.careful});await deviceChange(id,!result.ok?result.message||'That could not be saved.':a.careful?a.name+' now sends without asking.':a.name+' now asks Yes or No before every command.');},a.careful?'Now: asks Yes or No before every command':'Now: sends at once'),
+  entry('Remove '+a.name,()=>confirmRemoval(a.name+' and its '+count(a.buttons.length,'button'),()=>deviceChange(id,'Nothing was removed.'),async()=>{const result=await deviceHub('remove-device',{id});await deviceSetup(result.ok?a.name+' was removed.':result.message||'It could not be removed.');})),
+  entry('Back',()=>deviceEdit(id))]);
+ report(note||(a.careful?a.name+' asks Yes or No before every command.':a.name+' sends a command as soon as its button is chosen.'));
+}
+async function buttonEdit(deviceId,buttonId,note=''){
+ deviceScreen('device-button',()=>deviceEdit(deviceId));const state=await loadDevices(()=>buttonEdit(deviceId,buttonId));if(!state)return;
+ const a=state.appliances.find(x=>x.id===deviceId),b=a?.buttons.find(x=>x.id===buttonId);if(!b){await deviceEdit(deviceId,note);return;}
+ const again=said=>buttonEdit(deviceId,buttonId,said);
+ tiles(a.name+' · '+b.label,[
+  pictured('Send it',()=>pressDevice(a,b,false,again),b.icon,'try the button now'),
+  entry('Record it again',()=>recordButton(a,b.label,b.icon,b.id),'Press it on the remote once more'),
+  entry('Rename',()=>askText({label:'New name for '+b.label,title:'Write the button name',submit:'Save this name',value:b.label,max:24,cancel:()=>run(()=>again()),
+   done:async label=>{const result=await deviceHub('rename-button',{id:b.id,label,icon:b.icon==='dot'?buttonIcon(label,a.kind):b.icon});await again(result.ok?'Renamed to '+label+'.':result.message||'The name could not be saved.');}})),
+  entry('Remove',()=>confirmRemoval(b.label,()=>again('Nothing was removed.'),async()=>{const result=await deviceHub('remove-button',{id:b.id});await deviceEdit(deviceId,result.ok?b.label+' was removed.':result.message||'It could not be removed.');})),
+  entry('Back',()=>deviceEdit(deviceId))]);
+ report(note||senderNote(state)||'Send it to try it, or record, rename or remove it.');
+}
+// A new button: the names suggested for this kind of device that it does not have yet, each one
+// press, or any other name with the keyboard.
+function addDeviceButton(a){
+ const missing=missingButtons(a,6);
+ if(!missing.length){nameDeviceButton(a);return;}
+ deviceScreen('device-add',()=>deviceEdit(a.id));
+ tiles('Which button?',[...missing.map(([name,icon])=>pictured(name,()=>recordButton(a,name,icon),icon)),entry('Another name',()=>nameDeviceButton(a),'Write it with the keyboard'),entry('Back',()=>deviceEdit(a.id))]);
+ report('Choose the button to record for '+a.name+', or Another name to write one.');
 }
 function nameDeviceButton(a){
  askText({label:'Name of the button for '+a.name+', for example On/off',title:'Write the button name',submit:'Record this button',value:'',max:24,cancel:()=>run(()=>deviceEdit(a.id)),
-  done:async name=>{
-   const result=await deviceHub('learn',{applianceId:a.id,label:name});if(!result.ok){await deviceEdit(a.id,result.message);return;}
-   deviceScreen('device-wait');waitingFor={id:a.id,name,device:a.name,busy:false};
-   tiles('Press "'+name+'" on the remote',[entry('Stop waiting',()=>stopWaiting())]);report('Point the remote at the receiver and press '+name+' once.');
-  }});
+  // A name the suggestions do not know gets its picture from the website (it knows more words).
+  done:name=>{const icon=buttonIcon(name,a.kind);return recordButton(a,name,icon==='dot'?'':icon);}});
 }
-async function stopWaiting(){const w=waitingFor;waitingFor=null;await deviceHub('stop');if(w)await deviceEdit(w.id,'Stopped. Nothing was recorded.');else await deviceSetup();}
+// Start recording: the next signal the receiver hears becomes this button. `replace`: the
+// button whose signal is being recorded again.
+async function recordButton(a,name,icon,replace=''){
+ const result=await deviceHub('learn',{applianceId:a.id,label:name,icon,...(replace?{replace}:{})});
+ if(!result.ok){if(replace)await buttonEdit(a.id,replace,result.message);else await deviceEdit(a.id,result.message);return;}
+ deviceScreen('device-wait',null);waitingFor={id:a.id,name,device:a.name,kind:a.kind,replace,busy:false};
+ tiles('Press "'+name+'" on the remote',[entry('Stop waiting',()=>stopWaiting())]);
+ // With signals arriving by themselves the website says so here (see startLearning).
+ report(result.noise>=2?result.message:'Point the remote at the receiver and press '+name+' once.');
+}
+async function stopWaiting(){const w=waitingFor;waitingFor=null;await deviceHub('stop');if(!w)await deviceSetup();else if(w.replace)await buttonEdit(w.id,w.replace,'Stopped. The button keeps the signal it had.');else await deviceEdit(w.id,'Stopped. Nothing was recorded.');}
 // While a button is being recorded, ask every second whether the receiver has heard it.
 setInterval(async()=>{
  const w=waitingFor;if(!w||w.busy||busy||stage!=='device-wait')return;
  w.busy=true;const state=await deviceHub('get');w.busy=false;
  if(waitingFor!==w||stage!=='device-wait'||busy||!state.ok)return;
  if(state.learned&&state.learned.applianceId===w.id&&state.learned.label===w.name){
-  const saved=state.learned.buttonId;deviceScreen('device-saved');
-  tiles('Saved: '+w.name,[entry('Add another button',()=>nameDeviceButton({id:w.id,name:w.device})),entry('Try '+w.name,async()=>{const now=await deviceHub('get'),a=now.appliances?.find(x=>x.id===w.id),b=a?.buttons.find(x=>x.id===saved);if(a&&b)await pressDevice(a,b);}),entry('Done',()=>deviceEdit(w.id))]);
-  report('"'+w.name+'" was recorded and saved for '+w.device+'.');
- }else if(!state.learning){waitingFor=null;run(()=>deviceEdit(w.id,'No signal arrived in time. Nothing was recorded.'));}
+  const saved=state.learned.buttonId,buttons=state.appliances.find(x=>x.id===w.id)?.buttons||[],icon=buttons.find(x=>x.id===saved)?.icon||'dot',device={id:w.id,name:w.device,kind:w.kind,buttons};
+  deviceScreen('device-saved',()=>deviceEdit(w.id));
+  tiles('Saved: '+w.name,[
+   pictured('Try '+w.name,async()=>{const now=await deviceHub('get'),a=now.appliances?.find(x=>x.id===w.id),b=a?.buttons.find(x=>x.id===saved);if(a&&b)await pressDevice(a,b,false,said=>buttonEdit(w.id,saved,said));},icon,'send it now'),
+   entry('Record it again',()=>recordButton(device,w.name,icon,saved)),entry('Add another button',()=>addDeviceButton(device)),entry('Done',()=>deviceEdit(w.id))]);
+  report('"'+w.name+'" was recorded and saved for '+w.device+'. '+(learnedWarning(state.learned)||'Choose Try to send it.'));
+ }else if(!state.learning){waitingFor=null;run(()=>w.replace?buttonEdit(w.id,w.replace,'No signal arrived in time. The button keeps the signal it had.'):deviceEdit(w.id,'No signal arrived in time. Nothing was recorded.'));}
  else $('hint').textContent='Waiting for the receiver · '+state.learning.secondsLeft+' seconds left';
 },1000);
 // The Windows app is linked to the website once, by a code typed there. The code stays the same
@@ -2104,7 +2189,7 @@ function shiftText(p){
 // window (shown when a check fails) and from the Paused and settings menus, so
 // that a session whose check passed can be saved too.
 async function saveDiagnosticsFile(){
- const text=JSON.stringify({format:'hands-free-diagnostics',formatVersion:1,app:'0.4.42',savedAt:new Date().toISOString(),screen:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},trackingMode:$('tracking-mode').value,setup:sessionSetup||null,camera:cameraStats||null,model:model||null,validation:validation||null,picture:stream?.getVideoTracks()[0]?pictureControls(stream.getVideoTracks()[0]):null,pictureLog,pictureProbe,lensChoice,lens:{inUse:lensControl(stream?.getVideoTracks()[0]).lens,byHand:handLens(),log:lensLog},faceEdges:edgeTally,reflections:reflections.bands,settings:{headMove:$('head-move').checked,lidInput:$('lid-input').checked,darkCalibration:$('dim-capture').checked,calibration:$('calibration-mode').value},recentre:{on:recentreOn(),shift:[Math.round(recentre.shift[0]*innerWidth),Math.round(recentre.shift[1]*innerHeight)],looking:recentre.looking.map(v=>Math.round(v*100)/100),log:recentreLog},light:lastLight,steps:diagnosticSteps,frameColumns:['time','step','point','status',...FRAME_FIELDS,...ALT_FIELDS.map(k=>'pixels_'+k),'eye_white_1','eye_white_2','eye_glare_1','eye_glare_2','eye_lid_1','eye_lid_2','eye_not_read'],frames:diagnosticFrames});
+ const text=JSON.stringify({format:'hands-free-diagnostics',formatVersion:1,app:'0.4.43',savedAt:new Date().toISOString(),screen:{width:innerWidth,height:innerHeight,pixelRatio:devicePixelRatio},trackingMode:$('tracking-mode').value,setup:sessionSetup||null,camera:cameraStats||null,model:model||null,validation:validation||null,picture:stream?.getVideoTracks()[0]?pictureControls(stream.getVideoTracks()[0]):null,pictureLog,pictureProbe,lensChoice,lens:{inUse:lensControl(stream?.getVideoTracks()[0]).lens,byHand:handLens(),log:lensLog},faceEdges:edgeTally,reflections:reflections.bands,settings:{headMove:$('head-move').checked,lidInput:$('lid-input').checked,darkCalibration:$('dim-capture').checked,calibration:$('calibration-mode').value},recentre:{on:recentreOn(),shift:[Math.round(recentre.shift[0]*innerWidth),Math.round(recentre.shift[1]*innerHeight)],looking:recentre.looking.map(v=>Math.round(v*100)/100),log:recentreLog},light:lastLight,steps:diagnosticSteps,frameColumns:['time','step','point','status',...FRAME_FIELDS,...ALT_FIELDS.map(k=>'pixels_'+k),'eye_white_1','eye_white_2','eye_glare_1','eye_glare_2','eye_lid_1','eye_lid_2','eye_not_read'],frames:diagnosticFrames});
  try{
   if(desktop?.saveDiagnostics){const where=await desktop.saveDiagnostics(text);return {saved:true,file:String(where).split(/[\\/]/).pop(),message:`Diagnostics saved to ${where}. Numbers only: eye and head readings for each dot, the map and the check results. No images and no name.`};}
   const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([text],{type:'application/json'}));link.download='hands-free-diagnostics.json';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),10000);
@@ -2126,7 +2211,7 @@ $('diagnostics-bar').onclick=saveDiagnosticsNow;
 // The same as a tile in Keys & settings, for saving by gaze.
 function diagnosticsEntry(again){return entry(diagnosticsSaved?'Diagnostics saved':'Save diagnostics',async()=>{await saveDiagnosticsNow();again();});}
 $('copy-report').onclick=async()=>{
- const content=['Screen control 0.4.42',$('result-title').textContent,resultReport||$('result-copy').textContent,$('result-sides').textContent,...[...$('result-details').children].map(n=>n.textContent)].join('\n\n');
+ const content=['Screen control 0.4.43',$('result-title').textContent,resultReport||$('result-copy').textContent,$('result-sides').textContent,...[...$('result-details').children].map(n=>n.textContent)].join('\n\n');
  try{await navigator.clipboard.writeText(content);$('copy-report-status').textContent='Report copied. It contains results only, without images or raw eye samples.';}
  catch{$('copy-report-status').textContent='The browser could not copy the report. You can select and copy the results above.';}
 };
@@ -2141,7 +2226,7 @@ $('pause').onclick=()=>stage==='preview'?run(()=>activate(previewUnverified||val
  // Back while the camera is still being set up (the camera check, before any dot) goes back to setup.
  // It used to fall through to the task menu: tiles over the desktop that answered neither eyes nor reason.
  else if(['align','starting','camera-preview'].includes(stage))backToSetup();
- else if(stage==='grid'&&zoomHistory.length){rect=zoomHistory.pop();depth--;grid();}else if(['letters','symbols','text-options'].includes(stage))keyboard();else if(stage==='keyboard'&&directTyping()||stage==='apps'||stage==='choose')browse();else if(stage==='keyboard'&&destination==='launch')appsMenu();else if(stage==='keyboard'&&destination==='ask')ask.cancel();else if(stage==='device'||stage==='device-confirm')run(()=>devicesMenu());else if(stage==='device-wait')run(()=>stopWaiting());else if(['device-kind','device-edit','device-saved'].includes(stage))run(()=>deviceSetup());else if(stage==='paused')backToSetup();else if(stage!=='welcome')menu();else backToSetup();};
+ else if(stage==='grid'&&zoomHistory.length){rect=zoomHistory.pop();depth--;grid();}else if(['letters','symbols','text-options'].includes(stage))keyboard();else if(stage==='keyboard'&&directTyping()||stage==='apps'||stage==='choose')browse();else if(stage==='keyboard'&&destination==='launch')appsMenu();else if(stage==='keyboard'&&destination==='ask')ask.cancel();else if(stage==='device-wait')run(()=>stopWaiting());else if(stage.startsWith('device')&&deviceBack){const back=deviceBack;run(()=>back());}else if(stage==='paused')backToSetup();else if(stage!=='welcome')menu();else backToSetup();};
 $('more-controls').onclick=()=>keyMenu();
 $('pointer-test').onclick=toggleSelections;$('copy-tracking').onclick=copyTrackingReport;
 $('read-mode').onclick=()=>run(enterReading);$('wake-pointer').onclick=()=>run(exitReading);

@@ -37,6 +37,9 @@ test('cloud sign-in protects the app and model, sends nothing without a transmit
  const command=await send({button_id:state.appliances[0].buttons[0].id,request_id:'0123456789abcdef0123456789abcdef',created_at:Date.now()});
  assert.equal(command.status,503);assert.match((await command.json()).message,/No transmitter board is linked yet\. No command was sent/);
  assert.equal((await send({})).status,400);
+ // `hold` reaches the hub: a button that is not for holding is refused as such.
+ const held=await send({button_id:state.appliances[0].buttons[0].id,hold:true,request_id:'1123456789abcdef0123456789abcdef',created_at:Date.now()});
+ assert.equal(held.status,400);assert.equal((await held.json()).message,'Fan · Power is sent once for each press. No command was sent.');
  for(const old of ['/api/status','/api/command'])assert.equal((await get(old,{headers})).status,404);
  assert.equal((await get('/config.local.json',{headers})).status,404);
  assert.equal((await get('/logout',{method:'POST',headers:{...headers,Origin:base}})).status,303);

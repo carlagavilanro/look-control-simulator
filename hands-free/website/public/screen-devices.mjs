@@ -33,3 +33,72 @@ export function learnedWarning(learned){
  if(learned.sameAs?.length)return 'This is the same signal as '+learned.sameAs.join(', ')+'. If the wrong button was pressed, record it again.';
  return '';
 }
+
+// ---- holding a button down ---------------------------------------------------------------------
+// The buttons the website marks `hold` (volume, channel, arrows) keep sending while they are held:
+// with the mouse or a finger, or in Screen control by looking at them. The website sends a held
+// button as one signal of under a second, as a held remote sends it, and answers when the board
+// has sent it; holding on is asking again. Nothing repeats on its own: when the page stops
+// asking - the finger lifts, the eyes move away, the page closes - the sending stops within
+// that second.
+//   after: a press kept down this long is a hold (a shorter one is a press).
+//   look:  in Screen control, how long the eyes stay on a button after it was sent before it is held.
+//   most:  one hold ends by itself after this long; holding on needs a new press or a new look.
+//   retry, retries: a request refused as too soon after the last command is asked again.
+export const HOLD=Object.freeze({after:350,look:1200,most:12000,retry:150,retries:8});
+// send(): one request, answered {ok,status,message,...}. still(): whether it is still held.
+// each(bursts,answer): after every signal sent. Ends when it is let go ('released'), after
+// `most` ms ('limit'), or when a request fails ('failed'). Returns {bursts,ms,result,reason}.
+export async function keepSending({send,still,each=()=>{},most=HOLD.most,now=()=>performance.now(),wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))}){
+ const started=now();let bursts=0,result=null,refused=0;
+ const done=reason=>({bursts,ms:Math.max(0,Math.round(now()-started)),result,reason});
+ while(still()){
+  if(now()-started>=most)return done('limit');
+  result=await send();
+  if(result?.status===429&&refused<HOLD.retries){refused++;await wait(HOLD.retry);continue;}
+  if(!result?.ok)return done('failed');
+  refused=0;bursts++;each(bursts,result);
+ }
+ return done('released');
+}
+// What to say when a hold has ended. again: how to go on after the limit.
+export function heldMessage(done,again='Press again to go on.'){
+ if(done.reason==='failed')return (done.bursts?'Stopped. ':'')+(done.result?.message||'No answer. Check the device before trying again.');
+ if(!done.bursts)return 'Nothing was sent.';
+ const practice=done.result?.practice===true?' The transmitter is in practice mode: no infrared was sent.':' The device\'s response is not confirmed.';
+ return (done.reason==='limit'?'Stopped after '+Math.round(done.ms/1000)+' seconds. '+again:'Held for '+(done.ms/1000).toFixed(1)+' seconds.')+practice;
+}
+// Press and hold with the mouse or a finger. A press on `button` kept down for `after` ms is a
+// hold: start() is called, and stop() when it is let go (anywhere on the page), when the pointer
+// leaves the button, or when the page loses the pointer or is hidden. A shorter press is press(),
+// as is a click made any other way (the keyboard, a selection by eye). A hold is never also a
+// press. The release is listened for on the window, so the page may redraw the button meanwhile.
+// Returns a function that ends a hold in progress.
+const RELEASES=['pointerup','pointercancel'];
+export function pressAndHold(button,{press,start,stop,after=HOLD.after,view=globalThis}){
+ let timer=null,held=false,swallow=false,forget=null;
+ const release=()=>{
+  clearTimeout(timer);timer=null;
+  for(const type of RELEASES)view.removeEventListener(type,release,true);
+  view.removeEventListener('blur',release);view.document?.removeEventListener('visibilitychange',release);
+  if(!held)return;
+  held=false;stop();
+  // The click that ends this hold comes right after the release; any later click is a press.
+  clearTimeout(forget);forget=setTimeout(()=>{swallow=false;},120);
+ };
+ button.addEventListener('pointerdown',event=>{
+  if(event.button>0||event.isPrimary===false)return;   // only the main button, and one finger
+  release();clearTimeout(forget);swallow=false;
+  for(const type of RELEASES)view.addEventListener(type,release,true);
+  // The window's own blur (another window came to the front). Not captured: the press itself moves
+  // the focus, and the blur of the button that had it would pass through a capturing listener.
+  view.addEventListener('blur',release);view.document?.addEventListener('visibilitychange',release);
+  timer=setTimeout(()=>{timer=null;held=true;swallow=true;start();},after);
+ });
+ button.addEventListener('pointerleave',release);
+ button.addEventListener('click',event=>{if(swallow){swallow=false;return;}press(event);});
+ // A long press with a finger asks for a menu on some devices.
+ button.addEventListener('contextmenu',event=>{if(held||timer!==null)event.preventDefault();});
+ button.classList?.add('can-hold');
+ return release;
+}

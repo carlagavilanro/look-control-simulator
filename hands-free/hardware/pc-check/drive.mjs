@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 const site=new URL('../../website',import.meta.url).pathname;
 const {createCloudServer}=await import(site+'/cloud-server.mjs');
-const {createHub}=await import(site+'/hub.mjs');
+const {createHub,samsungTimings,heldTimings}=await import(site+'/hub.mjs');
 const {heardSignal}=await import(site+'/public/board-usb.mjs');
 const seed=JSON.parse(fs.readFileSync(site+'/fan-signals.json','utf8'));
 const here=path.dirname(new URL(import.meta.url).pathname),port=18811,base='http://127.0.0.1:'+port;
@@ -56,11 +56,36 @@ try{
   await t.expect(new RegExp('IR command from the website: Fan · '+fan.buttons[index].label),2000,mark);await pause(900);
  }
  ok('a button pressed on the site is sent as infrared with exactly the recorded timings');
+ // A held button (volume up on a TV with the ready-made Samsung buttons): one signal of under a
+ // second, and the next one is taken as soon as the board has sent it.
+ {
+  const tv=(await page('/api/appliances','POST',{name:'TV',kind:'tv'})).body.appliance;assert.equal((await page('/api/appliances/'+tv.id+'/ready','POST',{set:'samsung-tv'})).status,200);
+  const up=(await page('/api/hub')).body.appliances.find(a=>a.id===tv.id).buttons.find(b=>b.label==='Volume up');assert.equal(up.hold,true);
+  const expected=heldTimings(samsungTimings(0xE0E0E01F));assert.equal(expected.length,611);
+  let mark=t.mark(),started=Date.now();
+  const held=await page('/api/send','POST',{button_id:up.id,hold:true,...request()}),took=Date.now()-started;
+  assert.deepEqual(held,{status:200,body:{sent:true,held:true,milliseconds:926,message:'Held for 0.9 seconds. The device\'s response is not confirmed.'}});
+  assert.deepEqual(sentTimings(await t.expect(/^IRSEND 38 611:/,3000,mark)),expected);await t.expect(/IR command from the website: TV · Volume up \(held\)/,2000,mark);
+  assert.ok(took>=900&&took<3000,'the answer comes when the signal is over: '+took+' ms');
+  // Held on: three more, each asked for when the last was answered. None is refused as too soon.
+  mark=t.mark();started=Date.now();
+  for(let i=0;i<3;i++){const more=await page('/api/send','POST',{button_id:up.id,hold:true,...request()});assert.equal(more.status,200,JSON.stringify(more.body));assert.equal(more.body.held,true);}
+  const each=(Date.now()-started)/3;
+  assert.equal(t.lines.slice(mark).filter(l=>/^IRSEND 38 611:/.test(l)).length,3);assert.ok(each>=900&&each<2000,'about a second for each: '+Math.round(each)+' ms');
+  // Let go: one press straight after is one press.
+  mark=t.mark();const tap=await page('/api/send','POST',{button_id:up.id,...request()});assert.equal(tap.status,200,JSON.stringify(tap.body));
+  assert.deepEqual(sentTimings(await t.expect(/^IRSEND 38 135:/,3000,mark)),samsungTimings(0xE0E0E01F));
+  // A button that is not for holding is refused, and the board hears nothing.
+  mark=t.mark();assert.equal((await page('/api/send','POST',{button_id:fan.buttons[0].id,hold:true,...request()})).status,400);await pause(900);
+  assert.equal(t.lines.slice(mark).some(l=>l.startsWith('IRSEND')),false);
+  assert.equal((await page('/api/appliances/'+tv.id,'DELETE')).status,200);
+  ok('a held button reaches the board as one signal of 0.9 s, is repeated for as long as it is asked for, and a press after it is one press');
+ }
  let mark=t.mark();t.type('3');const usb=await t.expect(/^IRSEND /,3000,mark);assert.deepEqual(sentTimings(usb),seed.commands.find(c=>c.name==='captured_level_up').raw_us);await t.expect(/SENT: Speed up/,2000,mark);
  ok('the USB fan test still works while linked');
  const tooSoon=await page('/api/send','POST',{button_id:fan.buttons[0].id,...request()});
- assert.equal(tooSoon.status,502);assert.match(tooSoon.body.message,/Please wait before another command.*Nothing was sent/);
- assert.equal(t.lines.slice(mark).filter(l=>l.startsWith('IRSEND')).length,1);ok('a command arriving within 0.8 s of another is refused by the board, and the site says nothing was sent');
+ assert.deepEqual(tooSoon,{status:429,body:{sent:false,message:'Wait a moment before the next command. No command was sent.'}});
+ assert.equal(t.lines.slice(mark).filter(l=>l.startsWith('IRSEND')).length,1);ok('a command arriving within 0.8 s of another is refused by the board, and the site says to wait: nothing was sent');
  await t.stop();t=board('transmitter',tState);await t.expect(/WEBSITE: Linked to 127\.0\.0\.1:18811\./);await pause(1500);
  assert.equal(t.lines.some(l=>/LINK CODE/.test(l)),false);
  mark=t.mark();assert.equal((await page('/api/send','POST',{button_id:fan.buttons[6].id,...request()})).status,200);await t.expect(/^IRSEND 38 /,3000,mark);

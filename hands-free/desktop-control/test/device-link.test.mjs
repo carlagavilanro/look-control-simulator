@@ -54,6 +54,10 @@ test('what the page passes on is cut to size, and the key goes only to the site 
  await link.call('add',{name:'x'.repeat(500),kind:{bad:true}});await link.call('send',{button_id:'b_1',confirm:'yes',extra:'ignored'});
  const add=JSON.parse(seen[0].options.body);assert.equal(add.name.length,32);assert.equal(add.kind,'');
  const send=JSON.parse(seen[1].options.body);assert.deepEqual(Object.keys(send).sort(),['button_id','created_at','request_id']);assert.match(send.request_id,/^[a-f0-9]{32}$/);
+ // A held button: `hold` is passed on only as true, beside a confirmation only as true.
+ await link.call('send',{button_id:'b_1',hold:true});await link.call('send',{button_id:'b_1',hold:'yes',confirm:true});
+ assert.deepEqual(Object.keys(JSON.parse(seen[2].options.body)).sort(),['button_id','created_at','hold','request_id']);assert.equal(JSON.parse(seen[2].options.body).hold,true);
+ assert.deepEqual(Object.keys(JSON.parse(seen[3].options.body)).sort(),['button_id','confirm','created_at','request_id']);
  for(const request of seen){assert.ok(request.url.startsWith('https://control.example/'));assert.equal(request.options.headers.Authorization,'Bearer '+'k'.repeat(43));}
  // A saved value that is not a key is ignored.
  const odd=createDeviceLink({site:'https://control.example',store:memory('not a key'),fetch:async()=>{throw Error('unused');}});assert.equal((await odd.call('get')).unlinked,true);

@@ -60,7 +60,9 @@ export function createDeviceLink({site,fetch,store,hostname='',now=Date.now}){
  const named=(what,id,method,body)=>/^[ab]_[a-f0-9]{12}$/.test(id||'')?linked('/api/'+what+'/'+id,method,body):Promise.resolve({ok:false,status:0,message:'That device or button could not be found.'});
  const actions={
   get:()=>linked('/api/hub'),
-  send:p=>linked('/api/send','POST',{button_id:text(p?.button_id,40),request_id:randomBytes(16).toString('hex'),created_at:Date.now(),...(p?.confirm===true?{confirm:true}:{})}),
+  // hold: the held version of a button (volume, channel, arrows), one signal of under a second; the
+  // page asks again for as long as the button is held.
+  send:p=>linked('/api/send','POST',{button_id:text(p?.button_id,40),request_id:randomBytes(16).toString('hex'),created_at:Date.now(),...(p?.confirm===true?{confirm:true}:{}),...(p?.hold===true?{hold:true}:{})}),
   add:p=>linked('/api/appliances','POST',{name:text(p?.name,32),kind:text(p?.kind,12)}),
   // replace: the button whose signal is recorded again (it keeps its place and its name).
   learn:p=>linked('/api/learn','POST',{applianceId:text(p?.applianceId,40),label:text(p?.label,24),...(p?.icon?{icon:text(p.icon,12)}:{}),...(p?.replace?{replace:text(p.replace,40)}:{})}),

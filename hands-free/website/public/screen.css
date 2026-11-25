@@ -178,3 +178,7 @@ label.check input{width:auto}
 .tiles.compact-menu button .tile-words{align-items:flex-start;gap:1px}
 .tiles.compact-menu button.pictured small{font-size:11.5px;line-height:1.2;color:#6a5874;max-width:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tiles button.pictured.gaze-active .tile-icon{stroke:#3d1f4b}
+/* A device button that is being held down: it keeps sending until it is let go. */
+.tiles button.holding,.tiles.compact-menu button.holding{border-color:#9a4300;box-shadow:inset 0 0 0 4px #9a4300,0 0 0 3px #fff;background:#fff3e6}
+.tiles button.holding .tile-icon{stroke:#9a4300}
+.can-hold{touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}

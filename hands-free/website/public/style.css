@@ -177,3 +177,6 @@ dialog.setup-dialog { width: min(680px,calc(100vw - 32px)); max-height: calc(100
 .embedded .app-shell{margin-left:0}.embedded .dashboard{grid-template-columns:1fr}.embedded .topbar{height:auto;min-height:0;border:0;justify-content:flex-end;padding-top:10px}.embedded main{padding-top:12px}
 /* Compact enough for both rows of a device's buttons to show at once, and still large to look at. */
 .embedded .device-choices{margin-bottom:12px}.embedded .device-switcher{margin-bottom:12px}.embedded .device{padding:10px 14px}.embedded .remote-card{padding:16px 18px}.embedded .connection-status{margin:6px 0 12px}.embedded .grid button{min-height:112px}.embedded .result-line{margin-top:14px;padding-top:10px}.embedded #result{font-size:14px}
+/* A button that is being held down: it keeps sending until it is let go. */
+.grid button.holding{border-color:#9a4300;box-shadow:inset 0 0 0 3px #9a4300;background:#fff3e6}
+.can-hold{touch-action:manipulation;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}

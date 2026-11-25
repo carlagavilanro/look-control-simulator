@@ -1,4 +1,18 @@
-CURRENT VERSION 0.4.41 - LINKING THIS APP WORKS; THE PROFILE KEEPS ITS CAMERA
+CURRENT VERSION 0.4.42 - "USE SAVED DEVICES" IS ON THE FIRST SCREEN
+The link at the top of the first screen now reads "Use saved devices"
+and opens your devices inside the app, for the mouse, without starting
+eye control. (The same devices are in the task menu once eye control is
+on.) The first time, it shows the link code and "Open the website to
+link".
+Before, that link read "Device controls" and opened the website in the
+browser. The browser came up BEHIND the app's window, so it looked as if
+nothing happened, and each press opened one more tab.
+
+TESTED: on the app's page in a browser, with a stand-in for the Windows
+side. On Windows itself, 0.4.41's link code screen and "Open the website
+to link" were seen working on 25 November; the changed link was not.
+
+PREVIOUS VERSION 0.4.41 - LINKING THIS APP WORKS; THE PROFILE KEEPS ITS CAMERA
 LINKING THIS APP TO YOUR DEVICES (this is why "Use saved devices" did
 not work in 0.4.39 and 0.4.40)
 The app is linked to the website once, with a six-digit code. Until now

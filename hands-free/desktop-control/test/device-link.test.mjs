@@ -114,5 +114,13 @@ test('a linked app renames, re-records and removes a device\'s buttons and the d
   const refused=await link.call('remove-device',{id:bad});assert.equal(refused.ok,false,String(bad));assert.equal(refused.status,0);
  }
  assert.equal((await link.call('remove-button',{id:'b_ffffffffffff'})).status,404);
+ // Ready-made buttons for a TV whose remote cannot be recorded: all of them with one request.
+ const made=await link.call('add',{name:'TV',kind:'tv'});assert.equal(made.ok,true);
+ assert.deepEqual((await link.call('get')).ready,[{id:'samsung-tv',name:'Samsung TV',kind:'tv',buttons:18}]);
+ const ready=await link.call('ready',{id:made.appliance.id,set:'samsung-tv'});
+ assert.equal(ready.ok,true);assert.equal(ready.added.length,18);assert.match(ready.message,/^18 buttons for a Samsung TV were added to TV\./);
+ assert.equal((await link.call('get')).appliances.find(a=>a.id===made.appliance.id).buttons.length,18);
+ assert.equal((await link.call('ready',{id:made.appliance.id,set:'toaster'})).status,400);
+ for(const bad of ['a_123','../a_0123456789ab',undefined])assert.equal((await link.call('ready',{id:bad,set:'samsung-tv'})).status,0,String(bad));
  assert.equal(server.hub.view().devices.length,1,'the app itself is still linked');
 });

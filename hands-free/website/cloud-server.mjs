@@ -30,7 +30,7 @@ async function fromRelease(name){
  const data=Buffer.from(await got.arrayBuffer());
  return data.length<=2*1024*1024?data:null;
 }
-export function createCloudServer({username,password,secureCookies=true,downloadUrl=releaseDownload,dataDir=null,persistent=false,hub=createHub({dataDir,persistent,seed:fanSeed()}),boardPrograms=fromRelease,now=Date.now}){
+export function createCloudServer({username,password,secureCookies=true,downloadUrl=releaseDownload,dataDir=null,persistent=false,log=undefined,hub=createHub({dataDir,persistent,seed:fanSeed(),log}),boardPrograms=fromRelease,now=Date.now}){
  if(!username||username.length>100||!password||password.length<24)throw Error('Set SITE_USERNAME and a random SITE_PASSWORD of at least 24 characters before cloud startup.');
  // Sign-ins. With storage attached they are kept across a restart of the website (every update
  // restarts it, and each one used to sign everybody out). Only a hash of each session's cookie is
@@ -92,6 +92,8 @@ export function createCloudServer({username,password,secureCookies=true,download
    if(part[2]==='buttons'&&req.method==='PATCH')return answer(res,await hub.changeButton(target,await read(req,1024)));
    if(part[2]==='buttons'&&req.method==='DELETE')return answer(res,await hub.removeButton(target));
   }
+  // Ready-made buttons (a Samsung TV's): part of setting a device up, so open to the linked app too.
+  if(part.length===5&&part[2]==='appliances'&&part[4]==='ready'&&req.method==='POST')return answer(res,await hub.addReady(decodeURIComponent(part[3]),(await read(req,1024)).set));
   if(!signedIn)return json(res,403,{message:'Sign in on the website to change this.'});
   if(route==='POST /api/pair/approve'){const body=await read(req,1024);return answer(res,await hub.pairApprove(body.code,body.name));}
   if(part.length===4&&part[3]){
@@ -217,7 +219,9 @@ export function createCloudServer({username,password,secureCookies=true,download
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  const server=createCloudServer({username:process.env.SITE_USERNAME,password:process.env.SITE_PASSWORD,...(/^https:\/\//.test(process.env.DOWNLOAD_URL||'')?{downloadUrl:process.env.DOWNLOAD_URL}:{}),
   // Railway names the folder of an attached volume. Without one the setup is kept only until the next restart, and the Setup page says so.
-  dataDir:process.env.DATA_DIR||process.env.RAILWAY_VOLUME_MOUNT_PATH||path.join(root,'data'),persistent:!!(process.env.DATA_DIR||process.env.RAILWAY_VOLUME_MOUNT_PATH)});
+  dataDir:process.env.DATA_DIR||process.env.RAILWAY_VOLUME_MOUNT_PATH||path.join(root,'data'),persistent:!!(process.env.DATA_DIR||process.env.RAILWAY_VOLUME_MOUNT_PATH),
+  // One line for each recording a receiver sends: what kind of signal it was and what became of it.
+  log:line=>console.log(line)});
  server.listen(Number(process.env.PORT||8787),process.env.HOST||'0.0.0.0',()=>console.log('Hands Free website ready. Boards and the app connect to it; it stores no video.'));
  process.on('SIGTERM',()=>{server.close(()=>process.exit(0));setTimeout(()=>process.exit(0),10000).unref();});
 }

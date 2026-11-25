@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {randomBytes} from 'node:crypto';
-import {createHub,validTimings,firstBurst,sameSignal,cutShort,iconFor,LIMITS} from '../hub.mjs';
+import {createHub,validTimings,firstBurst,sameSignal,cutShort,samsungTimings,READY,ICONS,iconFor,LIMITS} from '../hub.mjs';
 import {createCloudServer} from '../cloud-server.mjs';
 
 const seed=JSON.parse(fs.readFileSync(new URL('../fan-signals.json',import.meta.url),'utf8'));
@@ -130,7 +130,7 @@ test('a recorded button that may not be the remote\'s is marked: a signal alread
  time+=200000;hub.startLearning({applianceId:lamp.id,label:'Brighter'});time+=2000;await hear(on);
  assert.deepEqual(hub.view().learned.sameAs,['On']);
  // The linked app sees the same marks.
- assert.deepEqual(Object.keys(hub.view({full:false}).learned).sort(),['applianceId','at','buttonId','heardBefore','label','milliseconds','partial','sameAs','timings']);
+ assert.deepEqual(Object.keys(hub.view({full:false}).learned).sort(),['afterPartial','applianceId','at','buttonId','heardBefore','label','milliseconds','partial','sameAs','timings']);
 });
 // The first real remote (a Samsung TV's): one key was saved whole (SAMSUNG, 32 bits, 135 timings:
 // the code twice) and one as 58 timings with no protocol, nine short of one code. The TV ignored
@@ -147,8 +147,9 @@ test('a recording that is only part of a signal is told from the device\'s other
  // Buttons saved before the protocol was kept say it in their description.
  assert.deepEqual(cutShort([{origin:'SAMSUNG · 32 bits · 0xE0E06798',raw_us:samsung(0xE0E06798)}],{origin:'29 bits · 0x72F243B1',raw_us:part.raw_us}),{protocol:'SAMSUNG',timings:58});
  assert.equal(cutShort([{origin:'29 bits · 0x72F243B1',raw_us:part.raw_us}],{origin:'SAMSUNG · 32 bits · 0xE0E06798',raw_us:samsung(0xE0E06798)}),null);
- // Two protocols on one device: no saying which is right.
- assert.equal(cutShort([whole(0xE0E06798),{protocol:'NEC',raw_us:press([1,0,1,1,0,0,1,0,1,0,0,1])}],part),null);
+ // Keys of two remotes on one device: it is still part of a code of one of them.
+ assert.deepEqual(cutShort([whole(0xE0E06798),{protocol:'NEC',raw_us:press([1,0,1,1,0,0,1,0,1,0,0,1])}],part),{protocol:'SAMSUNG',timings:58});
+ assert.deepEqual(cutShort([{protocol:'NEC',raw_us:press([1,0,1,1,0,0,1,0,1,0,0,1])},whole(0xE0E06798)],part),{protocol:'SAMSUNG',timings:58});
  // A key from another remote, added to the same device, is not doubted: recognised as another
  // protocol, or not recognised but made of other pulses (here a shorter code with 900 and 1800).
  assert.equal(cutShort([whole(0xE0E06798)],{protocol:'NEC',raw_us:press([1,0,1,1,0,0,1,0,1,0,0,1])}),null);
@@ -163,23 +164,98 @@ test('a recording that is only part of a signal is told from the device\'s other
  assert.equal(cutShort(fan.slice(0,1),fan[1]),null);
  for(const a of seed.commands)assert.equal(cutShort(seed.commands.filter(b=>b!==a).map(b=>({origin:'The fan recordings that came with the project',raw_us:b.raw_us})),{origin:'The fan recordings that came with the project',raw_us:a.raw_us}),null,a.name);
 });
-test('"Record a button" says when it caught only part of a signal, and the pages are told which buttons look like that',async()=>{
+// Reception was unreliable on the first real receiver: a key recorded as 58 timings, then one as 9.
+// Both were saved as buttons, and the TV ignored them. Record now waits for a whole key.
+test('"Record a button" does not take part of a signal for the button: it goes on waiting, says so, and takes the whole one',async()=>{
+ let time=5_000_000;const lines=[],hub=createHub({seed,now:()=>time,log:line=>lines.push(line)});await hub.ready;const receiver=await link(hub,'receiver');
+ const tv=(await hub.addAppliance({name:'TV',kind:'tv'})).body.appliance;let n=0;
+ const hear=(raw,protocol)=>hub.addRecording(receiver.device,capture(raw,{protocol,capture_id:++n,decoded_hex:'0x'+n,bits:protocol==='SAMSUNG'?32:Math.floor(raw.length/2)}),20);
+ const buttons=()=>hub.view().appliances.find(a=>a.id===tv.id).buttons;
+ // The first button of a device: nothing to compare it with, but nine timings are no key.
+ assert.equal(hub.startLearning({applianceId:tv.id,label:'Power'}).status,200);
+ time+=4000;assert.equal((await hear(samsung(0xE0E040BF,1).slice(58),'UNKNOWN')).status,200);
+ assert.equal(samsung(0xE0E040BF,1).slice(58).length,9);
+ let view=hub.view();assert.equal(view.learned,null);assert.equal(buttons().length,0,'the scrap is not a button');
+ assert.deepEqual([view.learning.label,view.learning.partial,view.learning.partialTimings],['Power',1,9]);
+ assert.equal(view.learning.secondsLeft,86,'the first 90 seconds still run');
+ assert.equal(view.recordings.length,1,'it is kept in the list');
+ // Late in the wait: another scrap gives 45 more seconds to press again.
+ time+=80000;await hear(samsung(0xE0E040BF,1).slice(60),'UNKNOWN');view=hub.view();assert.deepEqual([view.learning.partial,view.learning.partialTimings,view.learning.secondsLeft],[2,7,45]);
+ time+=3000;await hear(samsung(0xE0E040BF),'SAMSUNG');view=hub.view();
+ assert.equal(view.learning,null);assert.deepEqual([view.learned.label,view.learned.timings,view.learned.partial,view.learned.afterPartial],['Power',135,null,2]);
+ assert.deepEqual(buttons().map(b=>[b.label,b.timings,b.doubt===true]),[['Power',135,false]]);
+ // With a whole button to go by: 58 of the 67 timings of one code are not taken either.
+ hub.startLearning({applianceId:tv.id,label:'Volume up'});time+=3000;await hear(samsung(0xE0E0E01F,1).slice(9),'UNKNOWN');
+ view=hub.view();assert.deepEqual([view.learned,view.learning.partial,view.learning.partialTimings,buttons().length],[null,1,58,1]);
+ time+=3000;await hear(samsung(0xE0E0E01F),'SAMSUNG');assert.deepEqual(buttons().map(b=>b.label),['Power','Volume up']);
+ // A key of another remote is taken as before (another protocol; or other pulses).
+ hub.startLearning({applianceId:tv.id,label:'Sound bar on'});time+=3000;await hear(press([1,0,1,1,0,0,1,0,1,0,0,1]),'NEC');assert.equal(hub.view().learned.label,'Sound bar on');
+ // Recording a button again: part of a signal does not replace what it had.
+ const power=buttons()[0];hub.startLearning({applianceId:tv.id,label:'Power',replace:power.id});time+=3000;await hear(samsung(0xE0E040BF,1).slice(9),'UNKNOWN');
+ assert.equal(buttons()[0].timings,135);assert.equal(hub.view().learning.partial,1);hub.stopLearning();
+ // Named by hand from the list, a part is a button, and it is marked as doubtful for the pages and the app.
+ const part=hub.view().recordings.find(r=>r.timings===58);assert.equal((await hub.addButton(tv.id,{label:'Mute',recordingId:part.id})).status,200);
+ assert.deepEqual(buttons().map(b=>[b.label,b.doubt===true]),[['Power',false],['Volume up',false],['Sound bar on',false],['Mute',true]]);
+ assert.deepEqual(hub.view({full:false}).appliances.find(a=>a.id===tv.id).buttons.map(b=>b.doubt===true),[false,false,false,true]);
+ assert.equal(hub.view().appliances[0].buttons.some(b=>b.doubt),false,'the fan that came with the project is not doubted');
+ // The website's log says what each recording was, and not whose.
+ assert.deepEqual(lines.slice(0,3),['recording: 4 bits, 9 timings, 0.0 s old -> only part of a signal, still waiting for the button (1)','recording: 3 bits, 7 timings, 0.0 s old -> only part of a signal, still waiting for the button (2)','recording: SAMSUNG 32 bits, 135 timings, 0.0 s old -> taken for the button being recorded']);
+ assert.equal(lines.some(line=>/TV|Power|Receiver/.test(line)),false);
+});
+// The first real TV remote was Samsung's smart remote: infrared for its power key only, Bluetooth
+// for the rest, so nothing but power could be recorded. The TV still takes Samsung's standard
+// infrared codes, so its buttons are offered ready-made.
+test('ready-made Samsung TV buttons are whole Samsung codes: 32 bits, the code and its complement, sent twice',()=>{
+ const read=raw=>{let code=0;for(let i=2;i<66;i+=2){assert.equal(raw[i],560);code=code*2+(raw[i+1]>1000?1:0);}return code;};
+ const set=READY['samsung-tv'];assert.equal(set.kind,'tv');assert.equal(set.buttons.length,18);
+ assert.equal(new Set(set.buttons.map(b=>b[0].toLowerCase())).size,18);assert.equal(new Set(set.buttons.map(b=>b[2])).size,18);
+ for(const [label,icon,code]of set.buttons){
+  assert.ok(ICONS.includes(icon),label);assert.ok(label.length<=LIMITS.label);
+  assert.equal(code>>>16,0xE0E0,label);assert.equal(((code>>>8)&255)^(code&255),255,label+': the command and its complement');
+  const raw=samsungTimings(code);assert.ok(validTimings(raw));assert.equal(raw.length,135);
+  assert.deepEqual(raw.slice(0,2),[4480,4480]);assert.equal(raw[66],560);assert.deepEqual(raw.slice(68),raw.slice(0,67),'the same code again');
+  assert.equal(raw.slice(0,68).reduce((a,b)=>a+b,0),108080,'108 ms from start to start');
+  assert.equal(read(raw),code,label);assert.equal(firstBurst(raw).length,67);
+ }
+ assert.equal(read(samsungTimings(0xE0E040BF)),0xE0E040BF);assert.equal(samsungTimings(0xE0E040BF,1).length,67);
+ // The receiver's own recording of a Samsung key (other header and gap lengths, within what a receiver measures) is the same signal.
+ assert.ok(sameSignal(samsung(0xE0E0E01F),samsungTimings(0xE0E0E01F)));assert.equal(sameSignal(samsung(0xE0E0E01F),samsungTimings(0xE0E0D02F)),false);
+});
+test('ready-made buttons are added to a device; what was recorded whole stays, parts of signals are replaced',async()=>{
+ const dataDir=folder();let hub=createHub({dataDir,seed,timing:quick});await hub.ready;const receiver=await link(hub,'receiver');
+ assert.deepEqual(hub.view().ready,[{id:'samsung-tv',name:'Samsung TV',kind:'tv',buttons:18}]);assert.deepEqual(hub.view({full:false}).ready,hub.view().ready);
+ const tv=(await hub.addAppliance({name:'TV',kind:'tv'})).body.appliance;let n=0;
+ const add=async(label,raw,protocol)=>{await hub.addRecording(receiver.device,capture(raw,{protocol,capture_id:++n,decoded_hex:'0x'+n}));const made=await hub.addButton(tv.id,{label,recordingId:hub.view().recordings.at(-1).id});assert.equal(made.status,200,label);};
+ // As on the first real TV: the smart remote's own power key (whole), and three takes that caught scraps.
+ await add('On/off',samsung(0xE0E06798),'SAMSUNG');await add('Volume up',samsung(0xE0E0E01F,1).slice(9),'UNKNOWN');await add('Mute',samsung(0xE0E0F00F,1).slice(58),'UNKNOWN');
+ await add('Louder',samsung(0xE0E0D02F),'SAMSUNG');   // "Volume down", recorded whole under a name of her own
+ const buttons=()=>hub.view().appliances.find(a=>a.id===tv.id).buttons;
+ assert.deepEqual(buttons().map(b=>[b.label,b.doubt===true]),[['On/off',false],['Volume up',true],['Mute',true],['Louder',false]]);
+ const ids=buttons().map(b=>b.id);
+ const done=await hub.addReady(tv.id,'samsung-tv');assert.equal(done.status,200);
+ assert.deepEqual(done.body.kept,['On/off','Volume down']);assert.deepEqual(done.body.replaced,['Volume up','Mute']);assert.equal(done.body.added.length,14);
+ assert.equal(done.body.message,'16 buttons for a Samsung TV were added to TV (Volume up, Mute replaced: they were only part of a signal). Try one: if the TV reacts, they all work.');
+ const now=buttons();assert.equal(now.length,18);assert.equal(now.some(b=>b.doubt),false);
+ assert.deepEqual(now.slice(0,4).map(b=>[b.label,b.id,b.timings,b.origin]),[['On/off',ids[0],135,'SAMSUNG · 12 bits · 0x1'],['Volume up',ids[1],135,'SAMSUNG · 32 bits · 0xE0E0E01F · ready-made'],['Mute',ids[2],135,'SAMSUNG · 32 bits · 0xE0E0F00F · ready-made'],['Louder',ids[3],135,'SAMSUNG · 12 bits · 0x4']]);
+ assert.deepEqual(now.find(b=>b.label==='OK'),{id:now.find(b=>b.label==='OK').id,label:'OK',icon:'ok',carrier_khz:38,origin:'SAMSUNG · 32 bits · 0xE0E016E9 · ready-made',timings:135,milliseconds:169});
+ // Again: nothing changes. And it is all kept across a restart.
+ const again=await hub.addReady(tv.id,'samsung-tv');assert.deepEqual([again.body.added,again.body.replaced,again.body.message],[[],[],'TV already has these buttons.']);
+ hub=createHub({dataDir,seed,timing:quick});await hub.ready;assert.equal(hub.view().appliances.find(a=>a.id===tv.id).buttons.length,18);
+ // What is asked for has to exist.
+ assert.equal((await hub.addReady(tv.id,'toaster')).status,400);assert.equal((await hub.addReady(tv.id,'constructor')).status,400);assert.equal((await hub.addReady('a_000000000000','samsung-tv')).status,404);
+ // A sent ready-made button goes to the transmitter with its timings.
+ const transmitter=await link(hub,'transmitter'),waiting=hub.nextCommand(transmitter.device,200);
+ const ok=hub.view().appliances.find(a=>a.id===tv.id).buttons.find(b=>b.label==='OK'),sending=hub.send({button_id:ok.id,...request()});
+ const handed=await waiting;assert.equal(handed.status,200);assert.deepEqual(handed.body.commands[0].raw_us,samsungTimings(0xE0E016E9));assert.equal(handed.body.commands[0].carrier_khz,38);
+ hub.commandDone(transmitter.device,{id:handed.body.id,ok:true});assert.equal((await sending).body.sent,true);
+});
+test('ready-made buttons stop at the most buttons a device may have, and say so',async()=>{
  const hub=createHub({seed,timing:quick});await hub.ready;const receiver=await link(hub,'receiver');
- const tv=(await hub.addAppliance({name:'TV',kind:'tv'})).body.appliance;
- const record=async(label,raw,protocol,id)=>{assert.equal((await hub.startLearning({applianceId:tv.id,label})).status,200);assert.equal((await hub.addRecording(receiver.device,capture(raw,{protocol,capture_id:id,decoded_hex:'0x'+id}),20)).status,200);return hub.view().learned;};
- let learned=await record('Volume up',samsung(0xE0E0E01F),'SAMSUNG',1);assert.equal(learned.partial,null);
- learned=await record('Volume down',samsung(0xE0E0D02F,1).slice(9),'UNKNOWN',2);
- assert.deepEqual(learned.partial,{protocol:'SAMSUNG',timings:58});
- let buttons=hub.view().appliances.find(a=>a.id===tv.id).buttons;
- assert.deepEqual(buttons.map(b=>[b.label,b.doubt===true]),[['Volume up',false],['Volume down',true]]);
- assert.deepEqual(hub.view({full:false}).appliances.find(a=>a.id===tv.id).buttons.map(b=>b.doubt===true),[false,true],'the Windows app is told too');
- // Recorded again, whole: the doubt is gone, and nothing is said.
- const again=buttons[1].id;assert.equal((await hub.startLearning({applianceId:tv.id,label:'Volume down',replace:again})).status,200);
- assert.equal((await hub.addRecording(receiver.device,capture(samsung(0xE0E0D02F),{protocol:'SAMSUNG',capture_id:3,decoded_hex:'0x3'}),20)).status,200);
- assert.equal(hub.view().learned.partial,null);
- buttons=hub.view().appliances.find(a=>a.id===tv.id).buttons;assert.deepEqual(buttons.map(b=>[b.id===again||b.label==='Volume up',b.doubt===true]),[[true,false],[true,false]]);
- // The fan that came with the project is not doubted.
- assert.equal(hub.view().appliances[0].buttons.some(b=>b.doubt),false);
+ const box=(await hub.addAppliance({name:'Box',kind:'other'})).body.appliance;
+ for(let i=0;i<LIMITS.buttons-3;i++){await hub.addRecording(receiver.device,capture(press([...i.toString(2).padStart(12,'0')].map(Number)),{capture_id:i+1}));assert.equal((await hub.addButton(box.id,{label:'Key '+i,recordingId:hub.view().recordings.at(-1).id})).status,200);}
+ const done=await hub.addReady(box.id,'samsung-tv');
+ assert.deepEqual(done.body.added,['On/off','Volume up','Volume down']);assert.match(done.body.message,/^3 buttons for a Samsung TV were added to Box\. Try one: if the TV reacts, they all work\. There was no room for the rest\.$/);
+ assert.equal(hub.view().appliances.find(a=>a.id===box.id).buttons.length,LIMITS.buttons);
 });
 test('a command reaches a waiting transmitter at once and the page hears what happened',async()=>{
  const hub=createHub({seed,timing:quick});await hub.ready;
@@ -378,7 +454,7 @@ test('over HTTP: the Windows app may use the devices and set one up; the pages m
  const {page,device,linked}=await site(t);
  const app=await linked('app'),board=await linked('transmitter');
  const seenByApp=await (await device(app,'/api/hub')).json();
- assert.deepEqual(Object.keys(seenByApp).sort(),['appliances','learned','learning','receiver','transmitter']);assert.deepEqual(Object.keys(seenByApp.appliances[0].buttons[0]).sort(),['icon','id','label']);
+ assert.deepEqual(Object.keys(seenByApp).sort(),['appliances','learned','learning','ready','receiver','transmitter']);assert.deepEqual(Object.keys(seenByApp.appliances[0].buttons[0]).sort(),['icon','id','label']);
  assert.deepEqual(seenByApp.receiver,{linked:false,online:false});
  const waiting=device(board,'/api/device/next?wait=5');await pause(60);
  const pressed=device(app,'/api/send','POST',{button_id:seenByApp.appliances[0].buttons[0].id,...request()});
@@ -397,6 +473,14 @@ test('over HTTP: the Windows app may use the devices and set one up; the pages m
  let view=await (await page('/api/hub')).json();
  assert.deepEqual(view.appliances[1].buttons.map(b=>b.label),['Mute']);assert.equal(view.learned.label,'Mute');
  assert.deepEqual([view.appliances[1].name,view.appliances[1].careful],['Bedroom TV',true]);
+ // Ready-made buttons are part of setting a device up: the app may add them, a board may not.
+ assert.equal((await device(receiver,'/api/appliances/'+tv.appliance.id+'/ready','POST',{set:'samsung-tv'})).status,401);
+ assert.equal((await device(app,'/api/appliances/'+tv.appliance.id+'/ready','POST',{set:'toaster'})).status,400);
+ const ready=await device(app,'/api/appliances/'+tv.appliance.id+'/ready','POST',{set:'samsung-tv'});assert.equal(ready.status,200);
+ const readied=await ready.json();assert.equal(readied.added.length,17);assert.deepEqual(readied.kept,['Mute']);
+ view=await (await page('/api/hub')).json();assert.equal(view.appliances[1].buttons.length,18);assert.equal(view.appliances[1].buttons[0].label,'Mute');
+ for(const b of view.appliances[1].buttons.slice(1))assert.equal((await page('/api/buttons/'+b.id,'DELETE')).status,200);
+ view=await (await page('/api/hub')).json();
  const mute=view.appliances[1].buttons[0];
  // The app renames a button, records it again in place, and removes it; then the device.
  assert.equal((await device(app,'/api/buttons/'+mute.id,'PATCH',{label:'Mute sound'})).status,200);

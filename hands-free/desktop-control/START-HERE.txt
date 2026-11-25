@@ -1,4 +1,48 @@
-CURRENT VERSION 0.4.44 - A RECORDING THAT WAS CUT SHORT IS POINTED OUT
+CURRENT VERSION 0.4.45 - READY-MADE SAMSUNG TV BUTTONS; RECORDING WAITS FOR A WHOLE SIGNAL
+READY-MADE BUTTONS FOR A SAMSUNG TV
+Samsung's smart remote sends infrared for its power key only. All its
+other keys go to the TV by Bluetooth, which the receiver cannot hear,
+so they cannot be recorded. The TV itself still takes infrared for
+every function, with Samsung's standard codes.
+  - In "Set up a device", choose the TV, then "Add a button", then
+    "Samsung TV buttons". Eighteen buttons are added at once: On/off,
+    Volume up and down, Mute, Channel up and down, Input, Home, Menu,
+    the four arrows, OK, Back, Exit, Play and Pause.
+  - On the website's Setup page the TV has a button "Add the 18
+    Samsung TV buttons".
+  - A button you recorded whole under one of those names stays as it
+    is. One that was only part of a signal is replaced.
+  - Try one. If the TV reacts, they all work. If it does not, the TV
+    is not taking Samsung's standard codes, and the buttons can be
+    removed again.
+
+RECORDING WAITS FOR A WHOLE SIGNAL
+When a button is being recorded and the receiver catches only part of
+its signal, that part is no longer saved as the button. (Two were, on
+the first TV remote: one with 58 timings and one with 9, where a whole
+key has 67. The TV ignored both.)
+  - The app and the website say "Only part of the signal was heard, so
+    it was not saved. Press ... again", and go on waiting. Each time
+    there are at least 45 more seconds to press.
+  - The button is saved when a whole signal arrives.
+  - "Record it again" no longer replaces a good recording with a part.
+  - A part is told in two ways: fewer than 12 timings is never a key;
+    and beside the device's other buttons, a signal made of the same
+    pulses but shorter than their codes is a part of one.
+  - Parts stay in the website's list "Recordings from the receiver".
+If this message keeps coming, the receiver is not getting a clean
+signal: check the sensor's three wires (signal on D15, power on 3V3,
+ground on GND), hold the remote a hand's length away, and try the
+sensor on the website's Boards and Wi-Fi page (step 5).
+
+TESTED: with both board programs running on a PC against the website's
+own code, and on the pages in a browser with stand-ins. The ready-made
+codes were checked against the boards' own infrared library: it sends
+exactly these timings and reads them back as the same Samsung codes.
+NOT yet tested: on the real TV and the real receiver, and this
+version's screens in the app on Windows.
+
+PREVIOUS VERSION 0.4.44 - A RECORDING THAT WAS CUT SHORT IS POINTED OUT
 A BUTTON THAT WAS ONLY PARTLY RECORDED
 Sometimes the receiver catches only part of a button's signal. Such a
 button looks saved, but the device does not react when it is sent. (The

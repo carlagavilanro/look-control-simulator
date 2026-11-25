@@ -20,7 +20,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createHash,randomBytes,randomInt} from 'node:crypto';
 
-export const LIMITS=Object.freeze({appliances:24,buttons:32,recordings:300,devices:12,timings:2048,recordBytes:32768,label:24,name:32,pending:30});
+// keyTimings: the fewest timings a whole key can have. The shortest codes in use (twelve or fourteen
+// bits) come to more; a handful of pulses is a scrap of a signal or stray light.
+export const LIMITS=Object.freeze({appliances:24,buttons:32,recordings:300,devices:12,timings:2048,recordBytes:32768,label:24,name:32,pending:30,keyTimings:12});
 export const KINDS=Object.freeze(['fan','tv','heater','light','other']);
 export const ICONS=Object.freeze(['power','minus','plus','up','down','left','right','ok','mode','silence','turn','timer','input','light','heat','fan','tv','dot']);
 const DEVICE_KINDS=['receiver','transmitter','app'];
@@ -54,8 +56,8 @@ export function firstBurst(raw){const end=raw.findIndex((value,index)=>index%2==
 // protocol, beside keys saved whole as SAMSUNG with 135). It is told from the device's other
 // buttons, which come from the same remote. All of this has to hold:
 //   - the receiver did not recognise it as a whole code of any protocol;
-//   - the other buttons agree on what a code is: one protocol, or (for a remote the receiver has
-//     no name for) codes of one length;
+//   - some of the other buttons agree on what a code is: those of one protocol, or (for a remote
+//     the receiver has no name for) those without one, have codes of one length;
 //   - its code is shorter than theirs;
 //   - it is made of their pulses and nothing else. A key from another remote is not doubted.
 // `signal` and the buttons: {protocol?, origin?, raw_us}. Returns {protocol, timings} (protocol ''
@@ -65,21 +67,51 @@ const near=(a,b)=>Math.abs(a-b)<=Math.max(160,.22*Math.max(a,b));
 // The different pulse lengths in some codes, each kind once.
 function pulses(bursts){const kinds=[];for(const value of bursts.flat().sort((a,b)=>a-b))if(!kinds.length||!near(kinds.at(-1),value))kinds.push(value);return kinds;}
 export function cutShort(others,signal){
- const names=[...new Set(others.map(protocolOf).filter(Boolean))];
- if(!others.length||protocolOf(signal)||names.length>1)return null;
- const like=(names.length?others.filter(b=>protocolOf(b)===names[0]):others).map(b=>firstBurst(b.raw_us)),lengths=like.map(burst=>burst.length),least=Math.min(...lengths);
- const mine=firstBurst(signal.raw_us);
- if(Math.max(...lengths)-least>2||mine.length>=least-2)return null;
- const kinds=pulses(like);
- return mine.every(value=>kinds.some(kind=>near(kind,value)))?{protocol:names[0]||'',timings:signal.raw_us.length}:null;
+ if(!others.length||protocolOf(signal))return null;
+ // The other buttons by protocol (those without a name together): it is part of a code of any one kind.
+ const mine=firstBurst(signal.raw_us),groups=new Map();
+ for(const b of others){const name=protocolOf(b);if(!groups.has(name))groups.set(name,[]);groups.get(name).push(firstBurst(b.raw_us));}
+ for(const [name,bursts]of groups){
+  const lengths=bursts.map(burst=>burst.length),least=Math.min(...lengths);
+  if(Math.max(...lengths)-least>2||mine.length>=least-2)continue;
+  const kinds=pulses(bursts);
+  if(mine.every(value=>kinds.some(kind=>near(kind,value))))return {protocol:name,timings:signal.raw_us.length};
+ }
+ return null;
 }
 export function sameSignal(a,b){
  const x=firstBurst(a),y=firstBurst(b);if(x.length<3||x.length!==y.length)return false;
  return x.every((value,index)=>Math.abs(value-y[index])<=Math.max(160,.22*Math.max(value,y[index])));
 }
 
-export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timing={}}={}){
- const t={collect:6000,confirm:8000,poll:20000,learn:90000,gap:800,pair:10*60*1000,online:38000,...timing};
+// log: told in one line what became of each recording (what kind of signal, not whose): the
+// website's own log is then enough to see whether a receiver hears whole keys or scraps.
+// ---- ready-made buttons ----------------------------------------------------------------------------
+// Some remotes cannot be recorded. Samsung's smart remote sends infrared for its power key only and
+// everything else by Bluetooth, so the receiver hears nothing when its other keys are pressed. The
+// TV itself still takes infrared for every function, with Samsung's standard codes, which are
+// public (here as the receiver's library writes them: SAMSUNG, 32 bits). A button is built from
+// its code exactly as a recording of it would be.
+const SAMSUNG_TV=[['On/off','power',0xE0E040BF],['Volume up','plus',0xE0E0E01F],['Volume down','minus',0xE0E0D02F],['Mute','silence',0xE0E0F00F],['Channel up','up',0xE0E048B7],['Channel down','down',0xE0E008F7],
+ ['Input','input',0xE0E0807F],['Home','dot',0xE0E09E61],['Menu','mode',0xE0E058A7],['Up','up',0xE0E006F9],['Down','down',0xE0E08679],['Left','left',0xE0E0A659],['Right','right',0xE0E046B9],['OK','ok',0xE0E016E9],
+ ['Back','left',0xE0E01AE5],['Exit','dot',0xE0E0B44B],['Play','dot',0xE0E0E21D],['Pause','dot',0xE0E052AD]];
+export const READY=Object.freeze({'samsung-tv':Object.freeze({name:'Samsung TV',kind:'tv',protocol:'SAMSUNG',buttons:SAMSUNG_TV})});
+// One Samsung code as timings in microseconds: a mark and a space of 4.48 ms, then 32 bits, most
+// significant first (a short mark, then a long space for 1 and a short one for 0), and a closing
+// mark. Sent twice, 108 ms from start to start, as the remotes send it. (The numbers are those of
+// IRremoteESP8266's sendSAMSUNG, the library the boards use.)
+export function samsungTimings(code,times=2){
+ const tick=560,frame=[8*tick,8*tick];
+ for(let bit=31;bit>=0;bit--)frame.push(tick,(code>>>bit)&1?3*tick:tick);
+ frame.push(tick);
+ const gap=Math.max(48*tick,193*tick-frame.reduce((sum,value)=>sum+value,0)),raw=[];
+ for(let i=0;i<times;i++){raw.push(...frame);if(i<times-1)raw.push(gap);}
+ return raw;
+}
+
+export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timing={},log=()=>{}}={}){
+ // again: after only part of a signal, the time "Record a button" still waits for a whole one.
+ const t={collect:6000,confirm:8000,poll:20000,learn:90000,again:45000,gap:800,pair:10*60*1000,online:38000,...timing};
  const file=dataDir?path.join(dataDir,'hub.json'):null;
  let data={schema:1,devices:[],appliances:[],recordings:[]};
  const tokens=new Map(),live=new Map(),pending=new Map(),starts=new Map(),seen=new Map();
@@ -197,19 +229,33 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
   const age=Number.isFinite(ageMs)&&ageMs>=0&&ageMs<24*60*60*1000?ageMs:null,at=now()-(age??0);
   const recording={id:id('r'),deviceId:device.id,at,fresh:age!==null,fingerprint,raw_us:capture.raw_us,
    protocol:clean(String(capture.protocol??''),24),bits:Number.isInteger(capture.bits)?capture.bits:0,code:clean(String(capture.decoded_hex??''),40),capture_id:Number.isInteger(capture.capture_id)?capture.capture_id:null};
+  const heard=(recording.protocol&&recording.protocol!=='UNKNOWN'?recording.protocol+' ':'')+(recording.bits?recording.bits+' bits, ':'')+recording.raw_us.length+' timings, '+(age===null?'saved earlier':(age/1000).toFixed(1)+' s old');
   // A recording made after "Record a button" was pressed becomes that button. Older ones the
   // board had saved (sent later, in a batch) go to the list instead.
   if(learning&&learning.until>now()&&recording.fresh&&at>=learning.startedAt-750){
-   // The next signal is taken for the button, whoever sent it. Two things are noted so the
-   // pages can say when it may not be the remote: the same signal was already arriving by itself
-   // in the two minutes before Record was pressed, or the device has it under another name.
-   const heardBefore=data.recordings.filter(r=>r.fresh&&r.at<learning.startedAt-750&&r.at>=learning.startedAt-120000&&sameSignal(r.raw_us,recording.raw_us)).length;
-   const sameAs=(appliance(learning.applianceId)?.buttons||[]).filter(b=>b.id!==learning.replace&&b.label.toLowerCase()!==learning.label.toLowerCase()&&sameSignal(b.raw_us,recording.raw_us)).map(b=>b.label);
    const target=appliance(learning.applianceId),replaced=target&&(learning.replace?target.buttons.find(b=>b.id===learning.replace):target.buttons.find(b=>b.label.toLowerCase()===learning.label.toLowerCase()));
-   const partial=target?cutShort(target.buttons.filter(b=>b!==replaced),recording):null;
-   const made=await addButton(learning.applianceId,{label:learning.label,icon:learning.icon,replace:learning.replace},recording);
-   if(made.status===200){learned={applianceId:learning.applianceId,buttonId:made.body.button.id,label:learning.label,at:now(),heardBefore,sameAs,partial,...describe(recording.raw_us)};learning=null;return {status:200,body:{ok:true,button:learned.label}};}
-  }
+   // Not a whole key: a scrap of a few pulses, or (told from the device's other buttons) only part
+   // of a code. A device ignores such a signal when it is sent back, so it is not taken for the
+   // button: recording goes on waiting, with time to press again, and the pages say what was heard.
+   // (It is kept in the list like any other signal, where it can still be named by hand.)
+   const partial=recording.raw_us.length<LIMITS.keyTimings?{protocol:'',timings:recording.raw_us.length}:target?cutShort(target.buttons.filter(b=>b!==replaced),recording):null;
+   if(partial){
+    learning.partial=(learning.partial||0)+1;learning.partialTimings=partial.timings;learning.until=Math.max(learning.until,now()+t.again);
+    log('recording: '+heard+' -> only part of a signal, still waiting for the button ('+learning.partial+')');
+   }else{
+    // The signal is taken for the button, whoever sent it. Two things are noted so the pages can
+    // say when it may not be the remote: the same signal was already arriving by itself in the
+    // two minutes before Record was pressed, or the device has it under another name.
+    const heardBefore=data.recordings.filter(r=>r.fresh&&r.at<learning.startedAt-750&&r.at>=learning.startedAt-120000&&sameSignal(r.raw_us,recording.raw_us)).length;
+    const sameAs=(target?.buttons||[]).filter(b=>b.id!==learning.replace&&b.label.toLowerCase()!==learning.label.toLowerCase()&&sameSignal(b.raw_us,recording.raw_us)).map(b=>b.label);
+    const made=await addButton(learning.applianceId,{label:learning.label,icon:learning.icon,replace:learning.replace},recording);
+    if(made.status===200){
+     learned={applianceId:learning.applianceId,buttonId:made.body.button.id,label:learning.label,at:now(),heardBefore,sameAs,partial:null,afterPartial:learning.partial||0,...describe(recording.raw_us)};learning=null;
+     log('recording: '+heard+' -> taken for the button being recorded');
+     return {status:200,body:{ok:true,button:learned.label}};
+    }
+   }
+  }else log('recording: '+heard+' -> kept in the list');
   data.recordings.push(recording);
   if(data.recordings.length>LIMITS.recordings)data.recordings.splice(0,data.recordings.length-LIMITS.recordings);
   await save();
@@ -273,6 +319,27 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
   const found=locate(buttonId);if(!found)return {status:404,body:{message:'Not found.'}};
   found.appliance.buttons=found.appliance.buttons.filter(b=>b!==found.button);
   await save();return {status:200,body:{message:found.button.label+' was removed.'}};
+ }
+ // Ready-made buttons for a device (see READY). A button the device already has under that name,
+ // recorded whole, stays as it is; one that is only part of a signal is replaced; a code the device
+ // already has under another name is not added twice.
+ async function addReady(applianceId,set){
+  const a=appliance(applianceId),ready=typeof set==='string'&&Object.hasOwn(READY,set)?READY[set]:null;
+  if(!a)return {status:404,body:{message:'That device no longer exists.'}};
+  if(!ready)return {status:400,body:{message:'There are no ready-made buttons of that kind.'}};
+  const doubtful=doubted(a),added=[],replaced=[],kept=[];
+  for(const [label,icon,code]of ready.buttons){
+   const raw_us=samsungTimings(code),existing=a.buttons.find(b=>b.label.toLowerCase()===label.toLowerCase());
+   if(existing?!doubtful.has(existing.id):a.buttons.some(b=>sameSignal(b.raw_us,raw_us))){kept.push(label);continue;}
+   if(!existing&&a.buttons.length>=LIMITS.buttons)break;
+   const button={id:existing?.id||id('b'),label,icon,carrier_khz:38,raw_us,addedAt:now(),fingerprint:sha('ready '+set+' '+code),protocol:ready.protocol,
+    origin:ready.protocol+' · 32 bits · 0x'+code.toString(16).toUpperCase()+' · ready-made'};
+   if(existing){a.buttons[a.buttons.indexOf(existing)]=button;replaced.push(label);}else{a.buttons.push(button);added.push(label);}
+  }
+  const changed=added.length+replaced.length;if(changed)await save();
+  const count=n=>n+(n===1?' button':' buttons');
+  return {status:200,body:{added,replaced,kept,message:!changed?a.name+' already has these buttons.'
+   :count(changed)+' for a '+ready.name+' '+(changed===1?'was':'were')+' added to '+a.name+(replaced.length?' ('+replaced.join(', ')+' replaced: '+(replaced.length===1?'it was':'they were')+' only part of a signal)':'')+'. Try one: if the TV reacts, they all work.'+(added.length+replaced.length<ready.buttons.length-kept.length?' There was no room for the rest.':'')}};
  }
  function startLearning({applianceId,label,icon,replace}){
   const a=appliance(applianceId),chosen=clean(label,LIMITS.label);
@@ -360,7 +427,7 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
  function doubted(a){
   const key=a.buttons.map(b=>b.id+'/'+b.fingerprint+'/'+b.raw_us.length).join(' '),kept=doubts.get(a);
   if(kept?.key===key)return kept.ids;
-  const ids=new Set(a.buttons.filter(b=>cutShort(a.buttons.filter(other=>other!==b),b)).map(b=>b.id));
+  const ids=new Set(a.buttons.filter(b=>b.raw_us.length<LIMITS.keyTimings||cutShort(a.buttons.filter(other=>other!==b),b)).map(b=>b.id));
   doubts.set(a,{key,ids});return ids;
  }
  function view({full=true}={}){
@@ -373,7 +440,10 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
   const receiver=data.devices.find(d=>d.kind==='receiver'&&online(d))||data.devices.find(d=>d.kind==='receiver');
   const base={transmitter:senderView?{linked:true,online:senderView.online,practice:senderView.practice===true,name:senderView.name}:{linked:false,online:false,practice:false,name:''},
    receiver:{linked:!!receiver,online:!!receiver&&online(receiver)},appliances,
-   learning:learning&&learning.until>time?{applianceId:learning.applianceId,label:learning.label,secondsLeft:Math.ceil((learning.until-time)/1000)}:null,
+   // The sets of ready-made buttons on offer, for remotes that cannot be recorded.
+   ready:Object.entries(READY).map(([set,r])=>({id:set,name:r.name,kind:r.kind,buttons:r.buttons.length})),
+   // partial: how many times only part of a signal was heard since Record was pressed (and the last one's timings).
+   learning:learning&&learning.until>time?{applianceId:learning.applianceId,label:learning.label,secondsLeft:Math.ceil((learning.until-time)/1000),partial:learning.partial||0,partialTimings:learning.partialTimings||0}:null,
    learned:learned&&time-learned.at<120000?learned:null};
   if(!full)return base;
   const names=new Map(data.devices.map(d=>[d.id,d.name]));
@@ -383,5 +453,5 @@ export function createHub({dataDir,seed=null,persistent=false,now=Date.now,timin
  function close(){for(const s of live.values()){s.waiter?.finish(null);}if(inFlight)finish(inFlight,{status:503,body:{message:'The website is restarting. Check the device before trying again.'}});return writing;}
  return {ready,pairStart,pairClaim,pairApprove,authDevice,removeDevice,renameDevice,addRecording,removeRecording,addAppliance,changeAppliance,removeAppliance,
   addButton:(applianceId,options)=>addButton(applianceId,options,data.recordings.find(r=>r.id===options?.recordingId)),
-  changeButton,removeButton,startLearning,stopLearning,nextCommand,commandDone,send,view,close,get saved(){return writing;}};
+  changeButton,removeButton,addReady,startLearning,stopLearning,nextCommand,commandDone,send,view,close,get saved(){return writing;}};
 }
